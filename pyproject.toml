@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diskcache-community"
+dynamic = ["version"]
+description = "Disk Cache -- Disk and file backed persistent cache."
+readme = "README.rst"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Grant Jenks" }]
+maintainers = [{ name = "diskcache-community contributors" }]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/secondwindoss/diskcache-community"
+Source = "https://github.com/secondwindoss/diskcache-community"
+Tracker = "https://github.com/secondwindoss/diskcache-community/issues"
+Upstream = "https://github.com/grantjenks/python-diskcache"
+
+[tool.setuptools]
+packages = ["diskcache"]
+
+[tool.setuptools.dynamic]
+version = { attr = "diskcache.__version__" }
