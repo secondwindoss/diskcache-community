@@ -1393,6 +1393,108 @@ def test_memoize_ignore(cache):
     assert cache.stats() == (2, 1)
 
 
+def test_memoize_key_format(cache):
+    # The key format is part of the on-disk compatibility contract: caches
+    # written by earlier versions must keep hitting, so pin it.
+    @cache.memoize(name='plain')
+    def plain(a, b=2, *args, **kwargs):
+        return a
+
+    key = plain.__cache_key__
+    assert key(1, 2) == ('plain', 1, 2, None)
+    assert key(1, b=2) == ('plain', 1, None, 'b', 2)
+    assert key(1, 2, 3, d=4, c=5) == ('plain', 1, 2, 3, None, 'c', 5, 'd', 4)
+
+    @cache.memoize(name='typed', typed=True)
+    def typed(a, b=2):
+        return a
+
+    key = typed.__cache_key__
+    assert key(1, b=2.0) == ('typed', 1, None, 'b', 2.0, int, float)
+    assert key(1, 2.0) == ('typed', 1, 2.0, None, int, float)
+
+    class Thing:
+        @cache.memoize()
+        def method(self, a):
+            return a
+
+    thing = Thing()
+    base = dc.core.full_name(Thing.method.__wrapped__)
+    assert thing.method.__cache_key__(thing, 1) == (base, thing, 1, None)
+
+    # Naming an ignored parameter leaves the keys of the other calls alone.
+    @cache.memoize(name='named', ignore={'b'})
+    def named(a, b=2):
+        return a
+
+    key = named.__cache_key__
+    assert key(1) == ('named', 1, None)
+    assert key(1, b=5) == ('named', 1, None)
+    assert key(1, 5) == ('named', 1, None)
+
+
+def test_memoize_ignore_positional_by_name(cache):
+    # Upstream issue 240: a name in `ignore` must match the argument whether
+    # it is passed positionally or by keyword. Locks cannot be pickled, so a
+    # leak into the key raises instead of silently missing the cache.
+    @cache.memoize(ignore={'session'})
+    def get(entity_id, session):
+        return entity_id
+
+    cache.stats(enable=True)
+    assert get('a', threading.Lock()) == 'a'
+    assert get('a', session=threading.Lock()) == 'a'
+    assert get('a', threading.Lock()) == 'a'
+    assert cache.stats() == (2, 1)
+    assert get.__cache_key__('a', 1) == get.__cache_key__('a', session=2)
+
+
+def test_memoize_ignore_positions_and_names(cache):
+    @cache.memoize(name='mixed', ignore={0, 'c'})
+    def mixed(a, b, c=None):
+        return b
+
+    key = mixed.__cache_key__
+    assert key(1, 2, 3) == ('mixed', 2, None)
+    assert key(1, 2, c=3) == ('mixed', 2, None)
+    assert key(9, 2) == ('mixed', 2, None)
+
+    @cache.memoize(name='posonly', ignore={'a'})
+    def posonly(a, /, b):
+        return b
+
+    assert posonly.__cache_key__(1, 2) == ('posonly', 2, None)
+    assert posonly.__cache_key__(1, b=2) == ('posonly', None, 'b', 2)
+
+
+def test_memoize_ignore_keyword_only_and_var_positional(cache):
+    # Only positional parameters resolve to positions: `args` collects the
+    # extra positional arguments and `key` is keyword-only.
+    @cache.memoize(name='kwonly', ignore={'key', 'args'})
+    def kwonly(a, *args, key=None):
+        return a
+
+    key = kwonly.__cache_key__
+    assert key(1, 2, 3, key=4) == ('kwonly', 1, 2, 3, None)
+    assert key(1, key=4) == ('kwonly', 1, None)
+
+
+def test_memoize_ignore_without_signature(cache):
+    # Callables without a signature keep the position-only matching.
+    signature = mock.Mock(side_effect=ValueError('no signature'))
+
+    with mock.patch.object(dc.core.inspect, 'signature', signature):
+
+        @cache.memoize(name='nosig', ignore={'b'})
+        def nosig(a, b):
+            return a
+
+    assert signature.called
+    key = nosig.__cache_key__
+    assert key(1, 2) == ('nosig', 1, 2, None)
+    assert key(1, b=2) == ('nosig', 1, None)
+
+
 def test_memoize_iter(cache):
     @cache.memoize()
     def test(*args, **kwargs):

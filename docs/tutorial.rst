@@ -471,6 +471,17 @@ TypeError will occur::
 Observe the lack of parenthenses after :meth:`memoize
 <diskcache.FanoutCache.memoize>` above.
 
+The ``ignore`` argument leaves arguments out of the cache key. An integer
+ignores the argument at that position and a string ignores the parameter with
+that name, whether it is passed positionally or by keyword. Use it for
+arguments that do not affect the result, like a database session:
+
+    >>> @cache.memoize(ignore={'session'})
+    ... def lookup(entity_id, session):
+    ...     return entity_id
+    >>> lookup(1, object()) == lookup(1, session=object())
+    True
+
 .. _`Sharding`: https://en.wikipedia.org/wiki/Shard_(database_architecture)
 
 .. _tutorial-djangocache:
