@@ -9,17 +9,13 @@ import sqlite3
 import tempfile
 import time
 
-from .core import DEFAULT_SETTINGS, ENOVAL, Cache, Disk, Timeout
+from .core import DEFAULT_SETTINGS, ENOVAL, Cache, Disk, Timeout, _meta_result
 from .persistent import Deque, Index
 
 
-def _default_with_meta(default, expire_time, tag):
-    """Match Cache.get/pop: wrap default when expire_time or tag is requested."""
-    if expire_time and tag:
-        return (default, None, None)
-    if expire_time or tag:
-        return (default, None)
-    return default
+def _default_with_meta(default, expire_time, tag, store_time=False):
+    """Match Cache.get/pop: wrap default when metadata is requested."""
+    return _meta_result(default, expire_time, tag, store_time)
 
 
 class FanoutCache:
@@ -280,11 +276,17 @@ class FanoutCache:
         expire_time=False,
         tag=False,
         retry=False,
+        store_time=False,
     ):
         """Retrieve value from cache. If `key` is missing, return `default`.
 
         If database timeout occurs then returns `default` unless `retry` is set
         to `True` (default `False`).
+
+        When `expire_time`, `tag` or `store_time` is true, the result is a
+        tuple of the value followed by the requested metadata in that order,
+        with `None` for metadata when the key is missing or the shard timed
+        out.
 
         :param key: key for item
         :param default: return value if key is missing (default None)
@@ -294,15 +296,19 @@ class FanoutCache:
             (default False)
         :param tag: if True, return tag in tuple (default False)
         :param bool retry: retry if database timeout occurs (default False)
+        :param bool store_time: if True, return store_time in tuple
+            (default False)
         :return: value for item if key is found else default
 
         """
         index = self._hash(key) % self._count
         shard = self._shards[index]
         try:
-            return shard.get(key, default, read, expire_time, tag, retry)
+            return shard.get(
+                key, default, read, expire_time, tag, retry, store_time
+            )
         except (Timeout, sqlite3.OperationalError):
-            return _default_with_meta(default, expire_time, tag)
+            return _default_with_meta(default, expire_time, tag, store_time)
 
     def __getitem__(self, key):
         """Return corresponding value for `key` from cache.

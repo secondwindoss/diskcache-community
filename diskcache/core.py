@@ -711,6 +711,28 @@ class SafeDisk(Disk):
         super().remove(file_path)
 
 
+def _meta_result(value, expire_time, tag, store_time, meta=(None, None, None)):
+    """Return `value`, or a tuple of `value` and the requested metadata.
+
+    The tuple holds, after the value, the expire time when `expire_time` is
+    true, the tag when `tag` is true and the store time when `store_time` is
+    true, in that order. `meta` supplies the three database values; the
+    default is used when the key is missing.
+
+    """
+    if not (expire_time or tag or store_time):
+        return value
+    db_expire_time, db_tag, db_store_time = meta
+    result = (value,)
+    if expire_time:
+        result += (db_expire_time,)
+    if tag:
+        result += (db_tag,)
+    if store_time:
+        result += (db_store_time,)
+    return result
+
+
 class Timeout(Exception):
     """Database timeout expired."""
 
@@ -1767,11 +1789,17 @@ class Cache:
         expire_time=False,
         tag=False,
         retry=False,
+        store_time=False,
     ):
         """Retrieve value from cache. If `key` is missing, return `default`.
 
         Raises :exc:`Timeout` error when database timeout occurs and `retry` is
         `False` (default).
+
+        When `expire_time`, `tag` or `store_time` is true, the result is a
+        tuple of the value followed by the requested metadata in that order:
+        the expire time and store time as seconds since the epoch, the tag as
+        stored. Metadata is `None` when the key is missing.
 
         :param key: key for item
         :param default: value to return if key is missing (default None)
@@ -1781,6 +1809,8 @@ class Cache:
             (default False)
         :param bool tag: if True, return tag in tuple (default False)
         :param bool retry: retry if database timeout occurs (default False)
+        :param bool store_time: if True, return store_time in tuple
+            (default False)
         :return: value for item or default if key not found
         :raises Timeout: if database timeout occurs
 
@@ -1788,15 +1818,12 @@ class Cache:
         db_key, raw = self._disk.put(key)
         update_column = EVICTION_POLICY[self.eviction_policy]['get']
         select = (
-            'SELECT rowid, expire_time, tag, mode, filename, value'
+            'SELECT rowid, expire_time, tag, mode, filename, value, store_time'
             ' FROM Cache WHERE key = ? AND raw = ?'
             ' AND (expire_time IS NULL OR expire_time > ?)'
         )
 
-        if expire_time and tag:
-            default = (default, None, None)
-        elif expire_time or tag:
-            default = (default, None)
+        default = _meta_result(default, expire_time, tag, store_time)
 
         if not self.statistics and update_column is None:
             # Fast path, no transaction necessary.
@@ -1806,7 +1833,17 @@ class Cache:
             if not rows:
                 return default
 
-            ((rowid, db_expire_time, db_tag, mode, filename, db_value),) = rows
+            (
+                (
+                    rowid,
+                    db_expire_time,
+                    db_tag,
+                    mode,
+                    filename,
+                    db_value,
+                    db_store_time,
+                ),
+            ) = rows
 
             try:
                 value = self._disk.fetch(mode, filename, db_value, read)
@@ -1831,8 +1868,16 @@ class Cache:
                     return default
 
                 (
-                    (rowid, db_expire_time, db_tag, mode, filename, db_value),
-                ) = rows  # noqa: E127
+                    (
+                        rowid,
+                        db_expire_time,
+                        db_tag,
+                        mode,
+                        filename,
+                        db_value,
+                        db_store_time,
+                    ),
+                ) = rows
 
                 try:
                     value = self._disk.fetch(mode, filename, db_value, read)
@@ -1851,14 +1896,8 @@ class Cache:
                 if update_column is not None:
                     sql(update % update_column.format(now=now), (rowid,))
 
-        if expire_time and tag:
-            return (value, db_expire_time, db_tag)
-        elif expire_time:
-            return (value, db_expire_time)
-        elif tag:
-            return (value, db_tag)
-        else:
-            return value
+        meta = (db_expire_time, db_tag, db_store_time)
+        return _meta_result(value, expire_time, tag, store_time, meta)
 
     def __getitem__(self, key):
         """Return corresponding value for `key` from cache.

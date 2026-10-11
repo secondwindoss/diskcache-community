@@ -341,6 +341,29 @@ def test_get_timeout_expire_time(cache):
             None,
             None,
         )
+        assert cache.get(0, store_time=True) == (None, None)
+        assert cache.get(0, default=1, tag=True, store_time=True) == (
+            1,
+            None,
+            None,
+        )
+        assert cache.get(
+            0, default=1, expire_time=True, tag=True, store_time=True
+        ) == (1, None, None, None)
+
+
+def test_get_store_time(cache):
+    cache.set(0, 0, tag='number')
+    value, store_time = cache.get(0, store_time=True)
+    assert value == 0
+    assert isinstance(store_time, float)
+    assert cache.get(0, expire_time=True, tag=True, store_time=True) == (
+        0,
+        None,
+        'number',
+        store_time,
+    )
+    assert cache.get(1, store_time=True) == (None, None)
 
 
 def test_pop_timeout_expire_time(cache):

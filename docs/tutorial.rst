@@ -145,7 +145,13 @@ file-like object, and tag metadata is stored with the key. Another method,
 
 The return value is a tuple containing the value, expire time (seconds from
 epoch), and tag. Because we passed ``read=True`` the value is returned as a
-file-like object.
+file-like object. A fourth keyword parameter, `store_time`, appends the time
+the item was stored (seconds from epoch) as the last element of the tuple, so
+the age of a cached item can be logged when it is used.
+
+    >>> value, store_time = cache.get('key', store_time=True)
+    >>> type(store_time).__name__
+    'float'
 
 Use :meth:`touch <.Cache.touch>` to update the expiration time of an item in
 the cache.

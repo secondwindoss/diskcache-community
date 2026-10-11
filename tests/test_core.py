@@ -2162,3 +2162,53 @@ def test_fork_waits_for_transactions_in_other_threads(cache):
     os.close(read_fd)
     assert cache.get('held') == 1
     assert cache.get('child') == 2
+
+
+@pytest.mark.parametrize('statistics', [False, True])
+def test_get_store_time(cache, statistics):
+    if statistics:
+        cache.stats(enable=True)  # Take the transactional path in get.
+
+    before = time.time()
+    cache.set(0, 0, tag='number')
+    after = time.time()
+
+    value, store_time = cache.get(0, store_time=True)
+    assert value == 0
+    assert isinstance(store_time, float)
+    assert before <= store_time <= after
+    assert cache.get(0, store_time=True) == (0, store_time)
+    assert cache.get(0, expire_time=True, store_time=True) == (
+        0,
+        None,
+        store_time,
+    )
+    assert cache.get(0, tag=True, store_time=True) == (0, 'number', store_time)
+    assert cache.get(0, expire_time=True, tag=True, store_time=True) == (
+        0,
+        None,
+        'number',
+        store_time,
+    )
+    assert cache.get(0, expire_time=True, tag=True) == (0, None, 'number')
+    assert cache.get(0) == 0
+
+    assert cache.get(1, store_time=True) == (None, None)
+    assert cache.get(1, default=7, tag=True, store_time=True) == (
+        7,
+        None,
+        None,
+    )
+    assert cache.get(1, expire_time=True, tag=True, store_time=True) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def test_get_store_time_read(cache):
+    cache.set('key', io.BytesIO(b'value'), read=True)
+    reader, store_time = cache.get('key', read=True, store_time=True)
+    assert reader.read() == b'value'
+    assert isinstance(store_time, float)

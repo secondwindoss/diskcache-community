@@ -1081,6 +1081,20 @@ class DiskCacheTests(BaseCacheTests, TestCase):
         )
         self.assertEqual(cache.pop(4, retry=False), 4)
 
+    def test_get_store_time(self):
+        cache.set(1, 1)
+        value, store_time = cache.get(1, store_time=True)
+        self.assertEqual(value, 1)
+        self.assertIsInstance(store_time, float)
+        value, expire_time, tag, same_store_time = cache.get(
+            1, expire_time=True, tag=True, store_time=True
+        )
+        self.assertEqual(value, 1)
+        self.assertIsInstance(expire_time, float)  # Django's default timeout.
+        self.assertIsNone(tag)
+        self.assertEqual(same_store_time, store_time)
+        self.assertEqual(cache.get(2, store_time=True), (None, None))
+
     def test_cache(self):
         subcache = cache.cache('test')
         directory = os.path.join(cache.directory, 'cache', 'test')

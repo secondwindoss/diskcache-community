@@ -117,9 +117,13 @@ class DjangoCache(BaseCache):
         expire_time=False,
         tag=False,
         retry=False,
+        store_time=False,
     ):
         """Fetch a given key from the cache. If the key does not exist, return
         default, which itself defaults to None.
+
+        When `expire_time`, `tag` or `store_time` is true, the result is a
+        tuple of the value followed by the requested metadata in that order.
 
         :param key: key for item
         :param default: return value if key is missing (default None)
@@ -130,12 +134,16 @@ class DjangoCache(BaseCache):
             (default False)
         :param tag: if True, return tag in tuple (default False)
         :param bool retry: retry if database timeout occurs (default False)
+        :param bool store_time: if True, return store_time in tuple
+            (default False)
         :return: value for item if key is found else default
 
         """
-        # pylint: disable=arguments-differ
+        # pylint: disable=arguments-differ,too-many-arguments
         key = self.make_key(key, version=version)
-        return self._cache.get(key, default, read, expire_time, tag, retry)
+        return self._cache.get(
+            key, default, read, expire_time, tag, retry, store_time
+        )
 
     def read(self, key, version=None):
         """Return file handle corresponding to `key` from Cache.
