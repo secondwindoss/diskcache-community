@@ -59,7 +59,9 @@ who can write into the cache directory can run code in the process that reads
 from it. The package still installs and works, but dependency scanners flag it
 and no fixed upstream version exists. This fork publishes the same library as
 ``diskcache-community`` and carries the fix in two steps: 5.7.0 stays
-compatible with 5.6.3 caches and adds an opt-in ``SafeDisk``; 6.0.0 makes safe
+compatible with 5.6.3 caches and adds an opt-in ``SafeDisk``, selected with
+``Cache(directory, disk=SafeDisk)`` and likewise on ``FanoutCache``,
+``Deque``, ``Index`` and the Django ``DISK`` option; 6.0.0 makes safe
 reading the default. No release has been published yet; ``SECURITY.md`` in the
 repository describes the current state.
 
@@ -70,10 +72,14 @@ What stays the same:
   5.6.3 process opens a directory written by this fork and the reverse
 - the ``JSONDisk`` bytes, the memoize key format and the persisted settings
 
+What changes for everyone: directories the cache creates get mode ``0700``,
+so only the owner can read them; existing directories keep their permissions.
+
 Migrating from ``diskcache``: both distributions install into the same
 ``diskcache/`` package directory, so they cannot be installed side by side.
 Uninstall the upstream package first, and never keep both, because
-uninstalling either one deletes the shared package::
+uninstalling either one deletes the shared package. The fork warns at import
+time when both are installed::
 
   $ pip uninstall diskcache
   $ pip install diskcache-community
