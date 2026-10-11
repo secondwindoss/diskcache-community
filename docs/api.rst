@@ -126,6 +126,26 @@ Read the :ref:`Disk tutorial <tutorial-disk>` for details.
    :special-members:
    :exclude-members: __weakref__
 
+SafeDisk
+--------
+
+Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
+
+.. autoclass:: diskcache.SafeDisk
+   :members:
+   :special-members:
+   :exclude-members: __weakref__
+
+.. data:: diskcache.core.SAFE_PICKLE_NAMES
+
+   Mapping of module name to the names that :class:`SafeDisk
+   <diskcache.SafeDisk>` lets pickle resolve while reading.
+
+.. data:: diskcache.core.SAFE_TYPES
+
+   The Python types that :class:`SafeDisk <diskcache.SafeDisk>` accepts
+   for writing; exactly the types the names above read back.
+
 Timeout
 -------
 

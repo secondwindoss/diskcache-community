@@ -494,6 +494,8 @@ DjangoCache
             'SHARDS': 8,
             'DATABASE_TIMEOUT': 0.010,  # 10 milliseconds
             # ^-- Timeout for each DjangoCache database transaction.
+            'DISK': 'diskcache.Disk',
+            # ^-- Disk type for serialization, see SafeDisk below.
             'OPTIONS': {
                 'size_limit': 2 ** 30   # 1 gigabyte
             },
@@ -503,9 +505,11 @@ DjangoCache
 As with :class:`FanoutCache <diskcache.FanoutCache>` above, these settings
 create a Django-compatible cache with eight shards and a 10ms timeout. You can
 pass further settings via the ``OPTIONS`` mapping as shown in the Django
-documentation. Only the ``BACKEND`` and ``LOCATION`` keys are necessary in the
-above example. The other keys simply display their default
-value. :class:`DjangoCache <diskcache.DjangoCache>` will never raise a
+documentation. ``DISK`` names the :class:`Disk <diskcache.Disk>` type or
+subclass used for serialization, as a class or a dotted import path; see
+:ref:`SafeDisk <tutorial-safedisk>` for the restricted alternative. Only the
+``BACKEND`` and ``LOCATION`` keys are necessary in the above example. The other
+keys simply display their default value. :class:`DjangoCache <diskcache.DjangoCache>` will never raise a
 :exc:`Timeout <diskcache.Timeout>` exception. But unlike :class:`FanoutCache
 <diskcache.FanoutCache>`, the keyword parameter `retry` defaults to ``True``
 for :class:`DjangoCache <diskcache.DjangoCache>` methods.
@@ -855,6 +859,60 @@ integers, floats, strings, and bytes. Other datatypes are converted to bytes
 via the Pickle protocol. Beware that integers and floats like ``1`` and ``1.0``
 will compare equal as keys just as in Python. All other equality comparisons
 will require identical types.
+
+.. _tutorial-safedisk:
+
+SafeDisk
+........
+
+The default :class:`Disk <diskcache.Disk>` reads pickled keys and values back
+with :func:`pickle.load`, which runs whatever code a pickle asks for. Anyone
+who can write into the cache directory can therefore run code in every
+process that reads from it (CVE-2025-69872). :class:`SafeDisk
+<diskcache.SafeDisk>` keeps the same on-disk format but closes that path:
+
+* Pickles are read with an unpickler that resolves only an allowlist of
+  standard-library constructors: ``None``, ``bool``, ``int``, ``float``,
+  ``complex``, ``str``, ``bytes``, ``bytearray``, ``list``, ``tuple``,
+  ``dict``, ``set``, ``frozenset``, ``range``, ``slice``, ``OrderedDict``,
+  ``defaultdict``, ``deque``, ``Counter``, ``date``, ``datetime``, ``time``,
+  ``timedelta``, ``timezone``, ``Decimal``, ``Fraction`` and ``UUID``.
+  Anything else raises :exc:`pickle.UnpicklingError` instead of running.
+* A key or value outside the allowlist raises :exc:`TypeError` when it is
+  written, so an application finds out immediately rather than at read time.
+* File paths read from the database are confined to the cache directory and a
+  path that escapes it raises :exc:`ValueError`.
+
+Select it with the ``disk`` argument, which is not persisted, so every process
+that opens the directory chooses for itself:
+
+.. code-block:: python
+
+    from diskcache import Cache, Deque, FanoutCache, Index, SafeDisk
+
+    cache = Cache('/tmp/mycache', disk=SafeDisk)
+    fanout = FanoutCache('/tmp/myfanout', disk=SafeDisk)
+    deque = Deque(directory='/tmp/mydeque', disk=SafeDisk)
+    index = Index('/tmp/myindex', disk=SafeDisk)
+
+For :class:`DjangoCache <diskcache.DjangoCache>`, set ``'DISK':
+'diskcache.SafeDisk'`` next to ``SHARDS`` and ``DATABASE_TIMEOUT`` in the
+``CACHES`` setting. Sub-containers created through :meth:`FanoutCache.cache
+<diskcache.FanoutCache.cache>`, :meth:`deque <diskcache.FanoutCache.deque>`
+and :meth:`index <diskcache.FanoutCache.index>` use the fanout cache's disk
+unless given their own.
+
+A directory written with :class:`SafeDisk <diskcache.SafeDisk>` opens with the
+default :class:`Disk <diskcache.Disk>` and the reverse, as long as the values
+are within the allowlist. Some uses need the default :class:`Disk
+<diskcache.Disk>` because their objects are outside it: instances of your own
+classes, Django model instances and ``HttpResponse`` objects, datetimes whose
+``tzinfo`` is a ``zoneinfo.ZoneInfo`` rather than a ``datetime.timezone``, and
+:meth:`memoize <diskcache.Cache.memoize>` with ``typed=True``, which puts
+``type`` objects into the cache key. Every process that writes to a shared
+directory with the default :class:`Disk <diskcache.Disk>` must be trusted, and
+a reader using :class:`SafeDisk <diskcache.SafeDisk>` raises
+:exc:`pickle.UnpicklingError` on those rows.
 
 Caveats
 -------

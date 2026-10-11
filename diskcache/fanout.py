@@ -621,14 +621,16 @@ class FanoutCache:
             temp = Cache(
                 directory=directory,
                 timeout=timeout,
-                disk=self._disk if disk is None else Disk,
+                disk=self._disk if disk is None else disk,
                 **settings,
             )
             _caches[name] = temp
             return temp
 
-    def deque(self, name, maxlen=None):
+    def deque(self, name, maxlen=None, disk=None):
         """Return Deque with given `name` in subdirectory.
+
+        If disk is none (default), uses the fanout cache disk.
 
         >>> cache = FanoutCache()
         >>> deque = cache.deque('test')
@@ -642,6 +644,7 @@ class FanoutCache:
 
         :param str name: subdirectory name for Deque
         :param maxlen: max length (default None, no max)
+        :param disk: Disk type or subclass for serialization
         :return: Deque with given name
 
         """
@@ -654,15 +657,17 @@ class FanoutCache:
             directory = op.join(self._directory, 'deque', *parts)
             cache = Cache(
                 directory=directory,
-                disk=self._disk,
+                disk=self._disk if disk is None else disk,
                 eviction_policy='none',
             )
             deque = Deque.fromcache(cache, maxlen=maxlen)
             _deques[name] = deque
             return deque
 
-    def index(self, name):
+    def index(self, name, disk=None):
         """Return Index with given `name` in subdirectory.
+
+        If disk is none (default), uses the fanout cache disk.
 
         >>> cache = FanoutCache()
         >>> index = cache.index('test')
@@ -678,6 +683,7 @@ class FanoutCache:
         456
 
         :param str name: subdirectory name for Index
+        :param disk: Disk type or subclass for serialization
         :return: Index with given name
 
         """
@@ -690,7 +696,7 @@ class FanoutCache:
             directory = op.join(self._directory, 'index', *parts)
             cache = Cache(
                 directory=directory,
-                disk=self._disk,
+                disk=self._disk if disk is None else disk,
                 eviction_policy='none',
             )
             index = Index.fromcache(cache)
