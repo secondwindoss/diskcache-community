@@ -1,6 +1,8 @@
 """Test diskcache.core.Cache."""
 
+import _thread
 import errno
+import gc
 import hashlib
 import io
 import os
@@ -8,6 +10,7 @@ import os.path as op
 import pathlib
 import pickle
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess as sp
@@ -1751,3 +1754,333 @@ def test_existing_directory_keeps_mode():
     finally:
         os.umask(umask)
         shutil.rmtree(directory, ignore_errors=True)
+
+
+def resource_warnings(caught):
+    return [w for w in caught if issubclass(w.category, ResourceWarning)]
+
+
+def wait_for_child(pid, timeout=30):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        rpid, status = os.waitpid(pid, os.WNOHANG)
+        if rpid:
+            return os.waitstatus_to_exitcode(status)
+        time.sleep(0.01)
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    pytest.fail('child process did not exit within %s seconds' % timeout)
+
+
+def forget_inherited(con):
+    # Undo an in-process simulation of a fork child: here it is safe to
+    # close the connection, because this process did open it.
+    dc.core._INHERITED_CONNECTIONS.remove(con)
+    con.close()
+
+
+def test_close_closes_connections_of_exited_threads(cache):
+    cache.set('main', 0)
+    threads = [
+        threading.Thread(target=cache.set, args=(num, num)) for num in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    done = threading.Event()
+
+    def foreign():
+        # A thread with no threading.Thread object, like a Qt thread.
+        cache.set('foreign', 1)
+        done.set()
+
+    _thread.start_new_thread(foreign, ())
+    assert done.wait(10)
+    items = cache._cons._items
+    main = threading.get_ident()
+    deadline = time.monotonic() + 10
+    while any(ref() for ident, (ref, _) in items.items() if ident != main):
+        assert time.monotonic() < deadline, 'thread-local state not released'
+        time.sleep(0.01)
+    # Opening a connection closes those of exited threads, so at most the
+    # main thread's and the last thread's connections are left.
+    assert 1 <= len(items) <= 2
+    gc.collect()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        cache.close()
+        gc.collect()
+
+    assert not resource_warnings(caught)
+    assert cache._cons._items == {}
+    assert cache.get('main') == 0  # Reconnects on use.
+    assert cache.get('foreign') == 1
+
+
+def test_close_leaves_connections_of_live_threads(cache):
+    ready = threading.Event()
+    release = threading.Event()
+    results = []
+
+    def work():
+        cache.set('thread', 1)
+        ready.set()
+        release.wait(10)
+        results.append(cache.get('thread'))
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    assert ready.wait(10)
+    cache.close()
+    release.set()
+    thread.join(10)
+    assert results == [1]
+
+
+def test_connection_of_lost_thread_state_is_closed(cache):
+    cache.set('a', 1)
+    first = cache._local.con
+    # The interpreter drops a thread's local state when the thread exits or
+    # when a foreign thread gets a new thread state; simulate that here.
+    del cache._local.con
+    del cache._local.sentinel
+    cache.set('b', 2)
+    assert cache._local.con is not first
+    assert len(cache._cons._items) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        first.execute('SELECT 1')
+
+
+def test_garbage_collected_cache_closes_connections():
+    cache = dc.Cache()
+    directory = cache.directory
+    cache.set('a', 1)
+    gc.collect()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        del cache
+        gc.collect()
+
+    assert not resource_warnings(caught)
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+def test_after_fork_in_child_discards_connections(cache):
+    # Run the at-fork child handler in this process.
+    cache.set('a', 1)
+    con = cache._local.con
+    assert con not in dc.core._INHERITED_CONNECTIONS
+    dc.core._after_fork_in_child()
+    assert con in dc.core._INHERITED_CONNECTIONS
+    assert getattr(cache._local, 'con', None) is None
+    assert cache._cons._items == {}
+    assert cache.get('a') == 1
+    assert cache._local.con is not con
+    forget_inherited(con)
+
+
+def test_before_fork_closes_idle_connection(cache):
+    # Run the at-fork parent handlers in this process.
+    cache.set('a', 1)
+    con = cache._local.con
+
+    with cache.transact():
+        dc.core._before_fork()
+        dc.core._FORK_GATE.after_fork_parent()
+        assert cache._local.con is con  # Not closed inside a transaction.
+
+    dc.core._before_fork()
+    dc.core._FORK_GATE.after_fork_parent()
+    assert getattr(cache._local, 'con', None) is None
+    assert con not in dc.core._INHERITED_CONNECTIONS
+    with pytest.raises(sqlite3.ProgrammingError):
+        con.execute('SELECT 1')
+    assert cache.get('a') == 1  # Reconnects on use.
+
+
+def test_pid_change_discards_connections(cache):
+    # The fallback for a fork the at-fork handler did not see.
+    cache.set('a', 1)
+    con = cache._local.con
+    cache._cons.pid = -1
+    assert cache.get('a') == 1
+    assert cache._local.con is not con
+    assert cache._cons.pid == os.getpid()
+    assert con in dc.core._INHERITED_CONNECTIONS
+    forget_inherited(con)
+
+
+def test_close_after_pid_change_discards_connections(cache):
+    cache.set('a', 1)
+    con = cache._local.con
+    cache._cons.pid = -1
+    cache.close()
+    assert con in dc.core._INHERITED_CONNECTIONS
+    assert cache._cons.pid == os.getpid()
+    assert cache.get('a') == 1
+    forget_inherited(con)
+
+
+def test_close_all_after_pid_change_discards_connections():
+    cons = dc.core._Connections()
+    con = sqlite3.connect(':memory:', check_same_thread=False)
+    sentinel = dc.core._ThreadSentinel()
+    assert cons.add(threading.get_ident(), sentinel, con) == []
+    cons.pid = -1
+    cons.close_all()
+    assert con in dc.core._INHERITED_CONNECTIONS
+    forget_inherited(con)
+
+
+def test_connections_add_replaces_same_thread(cache):
+    cons = dc.core._Connections()
+    sentinel = dc.core._ThreadSentinel()
+    first = sqlite3.connect(':memory:', check_same_thread=False)
+    second = sqlite3.connect(':memory:', check_same_thread=False)
+    ident = threading.get_ident()
+    assert cons.add(ident, sentinel, first) == []
+    assert cons.add(ident, sentinel, second) == [first]
+    assert cons.pop(ident) == [second]
+    assert cons.pop(ident) == []
+    first.close()
+    second.close()
+
+
+def test_fork_gate_timeout():
+    gate = dc.core._ForkGate()
+    gate.timeout = 0.05
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold():
+        with gate:
+            entered.set()
+            release.wait(10)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    assert entered.wait(10)
+
+    with pytest.warns(RuntimeWarning, match='forking while'):
+        gate.before_fork()
+
+    gate.after_fork_parent()
+    release.set()
+    thread.join(10)
+
+
+def test_fork_gate_nesting_and_child_reset():
+    gate = dc.core._ForkGate()
+
+    with gate:
+        with gate:
+            assert gate._active == 1
+        gate.before_fork()  # The forking thread's own transaction.
+        gate.after_fork_parent()
+        assert gate._active == 1
+
+    assert gate._active == 0
+
+    with gate:
+        gate.after_fork_child()
+
+    assert gate._active == 0
+
+
+def test_fork_gate_blocks_new_transactions_while_forking():
+    gate = dc.core._ForkGate()
+    gate.before_fork()
+    entered = threading.Event()
+
+    def enter():
+        with gate:
+            entered.set()
+
+    thread = threading.Thread(target=enter)
+    thread.start()
+    assert not entered.wait(0.2)
+    gate.after_fork_parent()
+    assert entered.wait(10)
+    thread.join(10)
+
+
+@pytest.mark.skipif(not hasattr(os, 'fork'), reason='requires os.fork')
+def test_fork_child_opens_its_own_connections(cache):
+    # Two caches on one directory, then fork: upstream issue 325.
+    other = dc.Cache(cache.directory)
+    cache.set('parent', 1)
+    other.set('other', 2)
+    inherited = len(dc.core._INHERITED_CONNECTIONS)
+    read_fd, write_fd = os.pipe()
+    pid = os.fork()
+
+    if pid == 0:  # pragma: no cover
+        try:
+            checks = (
+                cache.get('parent') == 1,
+                other.get('other') == 2,
+                # Both connections were closed before the fork.
+                len(dc.core._INHERITED_CONNECTIONS) == inherited,
+            )
+            other.set('child', 3)
+            os.write(write_fd, bytes(checks))
+        except BaseException:
+            os.write(write_fd, b'\xff')
+        finally:
+            os._exit(0)
+
+    os.close(write_fd)
+    assert wait_for_child(pid) == 0
+    assert os.read(read_fd, 3) == b'\x01\x01\x01'
+    os.close(read_fd)
+    assert other.get('child') == 3
+    other.close()
+
+
+@pytest.mark.skipif(not hasattr(os, 'fork'), reason='requires os.fork')
+def test_fork_waits_for_transactions_in_other_threads(cache):
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold():
+        with cache.transact():
+            cache.set('held', 1)
+            entered.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert entered.wait(10)
+    forked = threading.Event()
+    pids = []
+    read_fd, write_fd = os.pipe()
+
+    def forker():
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover
+            try:
+                cache.set('child', 2)
+                os.write(write_fd, b'\x01')
+            except BaseException:
+                os.write(write_fd, b'\xff')
+            finally:
+                os._exit(0)
+        pids.append(pid)
+        forked.set()
+
+    thread = threading.Thread(target=forker)
+    thread.start()
+    assert not forked.wait(0.5)  # The fork waits for the transaction.
+    release.set()
+    holder.join(10)
+    assert forked.wait(10)
+    thread.join(10)
+    os.close(write_fd)
+    assert wait_for_child(pids[0]) == 0
+    assert os.read(read_fd, 1) == b'\x01'
+    os.close(read_fd)
+    assert cache.get('held') == 1
+    assert cache.get('child') == 2

@@ -81,12 +81,24 @@ be shared between threads. Two Cache objects may also reference the same
 directory from separate threads or processes. In this way, they are also
 process-safe and support cross-process communication.
 
-Cache objects open and maintain one or more file handles. But unlike files, all
-Cache operations are atomic and Cache objects support process-forking and may
-be serialized using Pickle. Each thread that accesses a cache should also call
-:meth:`close <.Cache.close>` on the cache. Cache objects can be used
-in a `with` statement to safeguard calling :meth:`close
-<diskcache.Cache.close>`.
+Cache objects open and maintain one or more file handles: one SQLite
+connection per thread that uses the cache. But unlike files, all Cache
+operations are atomic and Cache objects may be serialized using Pickle.
+Calling :meth:`close <.Cache.close>` closes the calling thread's connection
+and the connections of threads that have exited; connections that other
+running threads use stay open until those threads call ``close`` or the Cache
+object is garbage collected. Cache objects can be used in a `with` statement
+to safeguard calling :meth:`close <diskcache.Cache.close>`.
+
+Cache objects also support process forking. Before a fork, the forking
+thread's connections are closed in the parent, where they reopen on the next
+use, and the child process opens connections of its own; connections that
+other threads hold at the time of the fork are left untouched in the child.
+Forking inside a :meth:`transact <.Cache.transact>` block is not supported.
+On macOS, a Python that links the system SQLite library cannot open any
+database in a forked child once the parent has used SQLite; that limitation
+is not specific to DiskCache, and the ``spawn`` start method of
+:mod:`multiprocessing`, the default on macOS, avoids it.
 
     >>> cache.close()
     >>> with Cache(cache.directory) as reference:
