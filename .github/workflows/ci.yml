@@ -102,17 +102,30 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v7
-      - name: Create a conda environment whose SQLite is built with SQLITE_DQS=0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build SQLite 3.49.1 with SQLITE_DQS=0 and preload it
+        working-directory: ${{ runner.temp }}
         run: |
-          "$CONDA/bin/conda" create -y -q -n dqs --override-channels -c conda-forge python=3.12 "sqlite>=3.49" pip
-          echo "$CONDA/envs/dqs/bin" >> "$GITHUB_PATH"
-      - name: Check that this SQLite rejects double-quoted string literals
+          curl -sSfLO https://sqlite.org/2025/sqlite-autoconf-3490100.tar.gz
+          echo "106642d8ccb36c5f7323b64e4152e9b719f7c0215acf5bfeac3d5e7f97b59254  sqlite-autoconf-3490100.tar.gz" | sha256sum -c
+          tar xzf sqlite-autoconf-3490100.tar.gz
+          cd sqlite-autoconf-3490100
+          ./configure --disable-static CPPFLAGS="-DSQLITE_DQS=0" > configure.log
+          make -j"$(nproc)" > make.log
+          lib="$(find "$PWD" -maxdepth 1 -name 'libsqlite3.so*' -type f | head -1)"
+          test -n "$lib"
+          echo "LD_PRELOAD=$lib" >> "$GITHUB_ENV"
+      - name: Check that Python now uses a SQLite that rejects double-quoted string literals
         run: |
           python - <<'PY'
           import sqlite3
           import sys
 
           print('sqlite', sqlite3.sqlite_version, 'python', sys.version.split()[0])
+          if sqlite3.sqlite_version != '3.49.1':
+              sys.exit('the preloaded SQLite is not in use')
           try:
               sqlite3.connect(':memory:').execute('SELECT "not a column"')
           except sqlite3.OperationalError as error:
