@@ -2,29 +2,120 @@ name: release
 
 on:
   push:
-    tags:
-      - v*
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
 
-  upload:
+  build:
+    name: build and check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Check that the tag matches diskcache.__version__
+        if: github.ref_type == 'tag'
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+
+          text = open('diskcache/__init__.py', encoding='utf-8').read()
+          version = re.search(r"^__version__ = '([^']+)'", text, re.M).group(1)
+          tag = os.environ['GITHUB_REF_NAME']
+          if tag != 'v' + version:
+              sys.exit('tag %s does not match __version__ %s' % (tag, version))
+          print('tag', tag, 'matches __version__', version)
+          PY
+      - name: Install build and twine
+        run: pip install build twine
+      - name: Build the sdist and wheel
+        run: python -m build
+      - name: Check the distributions
+        run: python -m twine check --strict dist/*
+      - name: Install the wheel in a clean environment and import it
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m venv check
+          check/bin/pip install -q "${{ github.workspace }}"/dist/*.whl
+          check/bin/python -W error -c "import diskcache; print(diskcache.__title__, diskcache.__version__)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: publish to TestPyPI (dry run)
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/diskcache-community/
     permissions:
       id-token: write
-
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+  publish-pypi:
+    name: publish to PyPI
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/diskcache-community/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
 
-    - name: Install build
-      run: pip install build
+  github-release:
+    name: GitHub release
+    needs: publish-pypi
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release with this version's changelog section and the distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY' > notes.md
+          import os
+          import re
 
-    - name: Create build
-      run: python -m build
-
-    - name: Publish package distributions to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+          version = os.environ['GITHUB_REF_NAME'][1:]
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          pattern = r'^## ' + re.escape(version) + r'[^\n]*\n(.*?)(?=^## |\Z)'
+          match = re.search(pattern, text, re.M | re.S)
+          print(match.group(1).strip() if match else 'See CHANGELOG.md.')
+          PY
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md
