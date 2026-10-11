@@ -14,6 +14,7 @@ from .core import (
     Disk,
     EmptyDirWarning,
     JSONDisk,
+    SafeDisk,
     Timeout,
     UnknownFileWarning,
 )
@@ -44,6 +45,7 @@ __all__ = [
     'JSONDisk',
     'Lock',
     'RLock',
+    'SafeDisk',
     'Timeout',
     'UNKNOWN',
     'UnknownFileWarning',

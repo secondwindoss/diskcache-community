@@ -2,8 +2,12 @@
 """
 
 import codecs
+import collections as co
 import contextlib as cl
+import datetime as dt
+import decimal
 import errno
+import fractions
 import functools as ft
 import io
 import json
@@ -16,6 +20,7 @@ import struct
 import tempfile
 import threading
 import time
+import uuid
 import warnings
 import zlib
 
@@ -416,6 +421,249 @@ class JSONDisk(Disk):
         if not read:
             data = json.loads(zlib.decompress(data).decode('utf-8'))
         return data
+
+
+# Names that SafeDisk lets pickle resolve while reading, keyed by the module
+# recorded in the pickle. Protocols 0 to 2 record the Python 2 module names
+# and use copyreg._reconstructor and _codecs.encode to rebuild objects, so
+# those spellings and helpers are included. Every entry is a standard-library
+# constructor whose call cannot run code beyond building the object itself.
+# Helpers that reach attributes, such as builtins.getattr, which pickle uses
+# for zoneinfo.ZoneInfo, are deliberately absent.
+
+_SAFE_BUILTINS = frozenset(
+    {
+        'bytearray',
+        'bytes',
+        'complex',
+        'dict',
+        'float',
+        'frozenset',
+        'int',
+        'list',
+        'object',
+        'range',
+        'set',
+        'slice',
+        'str',
+        'tuple',
+    }
+)
+
+SAFE_PICKLE_NAMES = {
+    'builtins': _SAFE_BUILTINS,
+    '__builtin__': _SAFE_BUILTINS | {'long', 'unicode', 'xrange'},
+    'collections': frozenset(
+        {'Counter', 'OrderedDict', 'defaultdict', 'deque'}
+    ),
+    'copyreg': frozenset({'_reconstructor'}),
+    'copy_reg': frozenset({'_reconstructor'}),
+    '_codecs': frozenset({'encode'}),
+    'datetime': frozenset(
+        {'date', 'datetime', 'time', 'timedelta', 'timezone'}
+    ),
+    'decimal': frozenset({'Decimal'}),
+    'fractions': frozenset({'Fraction'}),
+    'uuid': frozenset({'UUID'}),
+}
+
+# Python types that SafeDisk accepts for writing: exactly the types that the
+# names above read back. Subclasses are rejected because pickle records the
+# subclass, which the reader would refuse.
+
+SAFE_TYPES = frozenset(
+    {
+        type(None),
+        bool,
+        int,
+        float,
+        complex,
+        str,
+        bytes,
+        bytearray,
+        list,
+        tuple,
+        dict,
+        set,
+        frozenset,
+        range,
+        slice,
+        co.Counter,
+        co.OrderedDict,
+        co.defaultdict,
+        co.deque,
+        dt.date,
+        dt.datetime,
+        dt.time,
+        dt.timedelta,
+        dt.timezone,
+        decimal.Decimal,
+        fractions.Fraction,
+        uuid.UUID,
+    }
+)
+
+_SAFE_MAPPINGS = (dict, co.Counter, co.OrderedDict, co.defaultdict)
+_SAFE_SEQUENCES = (list, tuple, set, frozenset, co.deque)
+_SAFE_TZ_TYPES = (type(None), dt.timezone)
+
+
+class SafeUnpickler(pickle.Unpickler):
+    """Unpickler that resolves only the names in SAFE_PICKLE_NAMES.
+
+    Every pickle opcode that can call code (GLOBAL, STACK_GLOBAL, INST, OBJ,
+    NEWOBJ, NEWOBJ_EX and REDUCE) obtains its callable through `find_class`,
+    so restricting `find_class` to a fixed set of constructors is enough to
+    keep a crafted pickle from running code.
+
+    """
+
+    def find_class(self, module, name):
+        if name in SAFE_PICKLE_NAMES.get(module, ()):
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            'SafeDisk refuses to unpickle %s.%s' % (module, name)
+        )
+
+
+class SafeDisk(Disk):
+    """Disk that reads back only an allowlist of standard-library types.
+
+    The default :class:`Disk` stores keys and values that SQLite cannot hold
+    natively as pickles and reads them back with :func:`pickle.load`, so
+    anyone who can write into the cache directory can run code in the process
+    that reads from it (CVE-2025-69872). :class:`SafeDisk` closes that path:
+
+    * Pickled keys and values are read with an unpickler that resolves only
+      the standard-library constructors in ``SAFE_PICKLE_NAMES`` and raises
+      :exc:`pickle.UnpicklingError` for anything else.
+    * Keys and values are checked before they are written, and a key or value
+      whose type the reader would refuse raises :exc:`TypeError` at write
+      time instead of failing later at read time.
+    * Paths read from the ``filename`` column are confined to the cache
+      directory, and a path that escapes it raises :exc:`ValueError`.
+
+    The on-disk format is the one :class:`Disk` writes, so a directory
+    written with :class:`SafeDisk` opens with :class:`Disk` and the reverse,
+    as long as the values are within the allowlist. Nothing about the choice
+    of disk is persisted; select it with ``Cache(directory, disk=SafeDisk)``,
+    ``FanoutCache(directory, disk=SafeDisk)``, ``Deque(disk=SafeDisk)``,
+    ``Index(disk=SafeDisk)`` or the ``DISK`` option of the Django backend.
+
+    Objects outside the allowlist, such as instances of your own classes,
+    Django model instances and responses, and the ``type`` objects that
+    ``memoize(typed=True)`` puts into keys, need the default :class:`Disk`.
+
+    """
+
+    def __init__(self, directory, min_file_size=0, pickle_protocol=0):
+        super().__init__(directory, min_file_size, pickle_protocol)
+        self._real_directory = op.realpath(directory)
+
+    def _check(self, obj, what):
+        """Raise TypeError unless every object in `obj` is in SAFE_TYPES."""
+        seen = set()
+        stack = [obj]
+
+        while stack:
+            item = stack.pop()
+            type_item = type(item)
+
+            if type_item not in SAFE_TYPES:
+                raise TypeError(
+                    'SafeDisk cannot store %s of type %s.%s'
+                    % (what, type_item.__module__, type_item.__qualname__)
+                )
+
+            if type_item in _SAFE_MAPPINGS:
+                if id(item) in seen:
+                    continue
+                seen.add(id(item))
+                if type_item is co.defaultdict:
+                    factory = item.default_factory
+                    if factory is not None and factory not in SAFE_TYPES:
+                        raise TypeError(
+                            'SafeDisk cannot store %s with defaultdict'
+                            ' factory %r' % (what, factory)
+                        )
+                stack.extend(item.keys())
+                stack.extend(item.values())
+            elif type_item in _SAFE_SEQUENCES:
+                if id(item) in seen:
+                    continue
+                seen.add(id(item))
+                stack.extend(item)
+            elif type_item in (dt.datetime, dt.time):
+                if type(item.tzinfo) not in _SAFE_TZ_TYPES:
+                    raise TypeError(
+                        'SafeDisk cannot store %s with tzinfo of type %s.%s'
+                        % (
+                            what,
+                            type(item.tzinfo).__module__,
+                            type(item.tzinfo).__qualname__,
+                        )
+                    )
+
+    def _confine(self, filename):
+        """Raise ValueError unless `filename` stays in the cache directory."""
+        normalized = str(filename).replace('\\', '/')
+
+        if (
+            normalized.startswith('/')
+            or op.isabs(normalized)
+            or op.splitdrive(normalized)[0]
+            or '..' in normalized.split('/')
+        ):
+            raise ValueError(
+                'SafeDisk refuses the path %r outside the cache directory'
+                % (filename,)
+            )
+
+        directory = self._real_directory
+        full_path = op.realpath(op.join(directory, filename))
+
+        try:
+            inside = op.commonpath((directory, full_path)) == directory
+        except ValueError:  # Different drives on Windows.
+            inside = False
+
+        if not inside:
+            raise ValueError(
+                'SafeDisk refuses the path %r outside the cache directory'
+                % (filename,)
+            )
+
+    def put(self, key):
+        # pylint: disable=unidiomatic-typecheck
+        if type(key) not in (bytes, str, int, float):
+            self._check(key, 'key')
+        return super().put(key)
+
+    def get(self, key, raw):
+        if raw:
+            return super().get(key, raw)
+        return SafeUnpickler(io.BytesIO(key)).load()
+
+    def store(self, value, read, key=UNKNOWN):
+        # pylint: disable=unidiomatic-typecheck
+        if not read and type(value) not in (bytes, str, int, float):
+            self._check(value, 'value')
+        return super().store(value, read, key=key)
+
+    def fetch(self, mode, filename, value, read):
+        if filename is not None:
+            self._confine(filename)
+
+        if mode == MODE_PICKLE:
+            if value is None:
+                value = super().fetch(MODE_BINARY, filename, None, False)
+            return SafeUnpickler(io.BytesIO(value)).load()
+
+        return super().fetch(mode, filename, value, read)
+
+    def remove(self, file_path):
+        self._confine(file_path)
+        super().remove(file_path)
 
 
 class Timeout(Exception):
