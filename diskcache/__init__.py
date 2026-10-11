@@ -106,8 +106,8 @@ _warn_if_upstream_installed()
 
 
 __title__ = 'diskcache-community'
-__version__ = '5.6.3'
-__build__ = 0x050603
+__version__ = '5.7.0'
+__build__ = 0x050700
 __author__ = 'Grant Jenks'
 __license__ = 'Apache 2.0'
 __copyright__ = 'Copyright 2016-2023 Grant Jenks'

@@ -751,10 +751,18 @@ def test_incr(cache):
     assert cache.incr('key', 2) == 8
     assert cache.get('key', expire_time=True, tag=True) == (8, None, None)
     assert cache.delete('key')
-    assert cache.set('key', 100, expire=0.100)
+    assert cache.set('key', 100, expire=10)
     assert cache.get('key') == 100
-    time.sleep(0.120)
+    expire_now(cache, 'key')
     assert cache.incr('key') == 1
+
+
+def expire_now(cache, key):
+    """Move the expiry of `key` into the past without waiting for the clock."""
+    cache._sql(
+        'UPDATE Cache SET expire_time = ? WHERE key = ?',
+        (time.time() - 1, key),
+    )
 
 
 def test_incr_insert_keyerror(cache):
@@ -763,9 +771,9 @@ def test_incr_insert_keyerror(cache):
 
 
 def test_incr_update_keyerror(cache):
-    assert cache.set('key', 100, expire=0.100)
+    assert cache.set('key', 100, expire=10)
     assert cache.get('key') == 100
-    time.sleep(0.120)
+    expire_now(cache, 'key')
     with pytest.raises(KeyError):
         cache.incr('key', default=None)
 
@@ -775,9 +783,9 @@ def test_decr(cache):
     assert cache.decr('key', 2) == 2
     assert cache.get('key', expire_time=True, tag=True) == (2, None, None)
     assert cache.delete('key')
-    assert cache.set('key', 100, expire=0.100)
+    assert cache.set('key', 100, expire=10)
     assert cache.get('key') == 100
-    time.sleep(0.120)
+    expire_now(cache, 'key')
     assert cache.decr('key') == -1
 
 
