@@ -1516,3 +1516,85 @@ def test_update_triggers_rollback(cache):
 
     cache[0] = 0  # Raises Timeout if a transaction were left open.
     assert cache.check() == []
+
+
+# The separator a cache written on the other operating system would store in
+# the Cache table's filename column (upstream issue 304).
+FOREIGN_SEP = '\\' if os.sep == '/' else '/'
+
+
+def foreign_separators(cache):
+    """Rewrite stored filenames as a cache written on the other OS stores them."""
+    cache._sql(
+        'UPDATE Cache SET filename = replace(filename, ?, ?)'
+        ' WHERE filename IS NOT NULL',
+        (os.sep, FOREIGN_SEP),
+    )
+    rows = cache._sql(
+        'SELECT filename FROM Cache WHERE filename IS NOT NULL'
+    ).fetchall()
+    assert rows
+    assert all(FOREIGN_SEP in filename for (filename,) in rows)
+    assert not any(os.sep in filename for (filename,) in rows)
+
+
+def value_files(cache):
+    return sorted(
+        op.join(dirpath, name)
+        for dirpath, _, files in os.walk(cache.directory)
+        for name in files
+        if dc.core.DBNAME not in name
+    )
+
+
+def test_native_filename(monkeypatch):
+    monkeypatch.setattr(os, 'sep', '/')
+    assert dc.core.native_filename('ab\\cd\\ef.val') == 'ab/cd/ef.val'
+    assert dc.core.native_filename('ab/cd/ef.val') == 'ab/cd/ef.val'
+    assert dc.core.native_filename('flat.val') == 'flat.val'
+    monkeypatch.setattr(os, 'sep', '\\')
+    assert dc.core.native_filename('ab/cd/ef.val') == 'ab\\cd\\ef.val'
+    assert dc.core.native_filename('ab\\cd\\ef.val') == 'ab\\cd\\ef.val'
+    assert dc.core.native_filename('flat.val') == 'flat.val'
+
+
+def test_foreign_separator_fetch_and_check(cache):
+    binary = b'a' * 2**16
+    text = 'b' * 2**16
+    obj = list(range(2**14))  # Pickles to about 48 KiB, so a file.
+    cache['binary'] = binary
+    cache['text'] = text
+    cache['pickle'] = obj
+    cache['raw'] = 1
+    foreign_separators(cache)
+    files = value_files(cache)
+    assert len(files) == 3
+
+    assert cache['binary'] == binary
+    assert cache['text'] == text
+    assert cache['pickle'] == obj
+    assert cache['raw'] == 1
+    with cache.get('binary', read=True) as reader:
+        assert reader.read() == binary
+    assert cache.check() == []
+    assert cache.check(fix=True) == []
+    assert value_files(cache) == files  # Nothing deleted as "unknown".
+    assert cache['binary'] == binary
+
+
+def test_foreign_separator_remove(cache):
+    cache['binary'] = b'a' * 2**16
+    cache['text'] = 'b' * 2**16
+    cache['popped'] = b'c' * 2**16
+    foreign_separators(cache)
+    assert len(value_files(cache)) == 3
+
+    del cache['binary']
+    assert len(value_files(cache)) == 2
+    assert cache.pop('popped') == b'c' * 2**16
+    assert len(value_files(cache)) == 1
+    assert cache.check() == []
+
+    cache.clear()
+    assert value_files(cache) == []
+    assert cache.check() == []
