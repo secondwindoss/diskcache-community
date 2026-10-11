@@ -1,0 +1,5 @@
+# Dependencies of the documentation build on Read the Docs. docs/conf.py puts
+# the repository root on sys.path, so the package itself is not installed;
+# Django is needed to document DjangoCache.
+django==5.2.*
+sphinx>=8,<10

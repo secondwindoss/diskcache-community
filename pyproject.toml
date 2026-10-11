@@ -30,6 +30,7 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/secondwindoss/diskcache-community"
+Documentation = "https://diskcache-community.readthedocs.io/"
 Source = "https://github.com/secondwindoss/diskcache-community"
 Tracker = "https://github.com/secondwindoss/diskcache-community/issues"
 Upstream = "https://github.com/grantjenks/python-diskcache"

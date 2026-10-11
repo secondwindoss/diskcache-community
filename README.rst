@@ -187,13 +187,13 @@ prevention, cross-process locking, and cross-process throttling are available::
 Python's docstrings are a quick way to get started but not intended as a
 replacement for the `DiskCache Tutorial`_ and `DiskCache API Reference`_.
 
-.. _`Cache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#cache
-.. _`FanoutCache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#fanoutcache
-.. _`DjangoCache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#djangocache
+.. _`Cache`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#cache
+.. _`FanoutCache`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#fanoutcache
+.. _`DjangoCache`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#djangocache
 .. _`Django`: https://www.djangoproject.com/
-.. _`Deque`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#deque
-.. _`Index`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#index
-.. _`recipes`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#recipes
+.. _`Deque`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#deque
+.. _`Index`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#index
+.. _`recipes`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html#recipes
 
 User Guide
 ----------
@@ -210,14 +210,14 @@ tutorial, benchmarks, API, and development.
 * `DiskCache API Reference`_
 * `DiskCache Development`_
 
-.. _`DiskCache Tutorial`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst
-.. _`DiskCache Cache Benchmarks`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/cache-benchmarks.rst
-.. _`DiskCache DjangoCache Benchmarks`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/djangocache-benchmarks.rst
-.. _`Talk: All Things Cached - SF Python 2017 Meetup`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/sf-python-2017-meetup-talk.rst
-.. _`Case Study: Web Crawler`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/case-study-web-crawler.rst
-.. _`Case Study: Landing Page Caching`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/case-study-landing-page-caching.rst
-.. _`DiskCache API Reference`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/api.rst
-.. _`DiskCache Development`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/development.rst
+.. _`DiskCache Tutorial`: https://diskcache-community.readthedocs.io/en/latest/tutorial.html
+.. _`DiskCache Cache Benchmarks`: https://diskcache-community.readthedocs.io/en/latest/cache-benchmarks.html
+.. _`DiskCache DjangoCache Benchmarks`: https://diskcache-community.readthedocs.io/en/latest/djangocache-benchmarks.html
+.. _`Talk: All Things Cached - SF Python 2017 Meetup`: https://diskcache-community.readthedocs.io/en/latest/sf-python-2017-meetup-talk.html
+.. _`Case Study: Web Crawler`: https://diskcache-community.readthedocs.io/en/latest/case-study-web-crawler.html
+.. _`Case Study: Landing Page Caching`: https://diskcache-community.readthedocs.io/en/latest/case-study-landing-page-caching.html
+.. _`DiskCache API Reference`: https://diskcache-community.readthedocs.io/en/latest/api.html
+.. _`DiskCache Development`: https://diskcache-community.readthedocs.io/en/latest/development.html
 
 Comparisons
 -----------
