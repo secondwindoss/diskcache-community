@@ -1136,3 +1136,13 @@ class DiskCacheTests(BaseCacheTests, TestCase):
 
         self.assertEqual(hits2, hits1 + count)
         self.assertEqual(misses2, misses1)
+
+    def test_memoize_ignore_positional(self):
+        @cache.memoize(ignore={'session'})
+        def get(entity_id, session):
+            return entity_id
+
+        self.assertEqual(get('a', object()), 'a')
+        self.assertEqual(
+            get.__cache_key__('a', 1), get.__cache_key__('a', session=2)
+        )

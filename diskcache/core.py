@@ -9,6 +9,7 @@ import decimal
 import errno
 import fractions
 import functools as ft
+import inspect
 import io
 import json
 import os
@@ -749,6 +750,49 @@ def args_to_key(base, args, kwargs, typed, ignore):
             key += tuple(type(value) for _, value in sorted_items)
 
     return key
+
+
+_POSITIONAL_KINDS = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
+
+
+def resolve_ignore(func, ignore):
+    """Expand `ignore` with the positions of the parameters it names.
+
+    `args_to_key` drops positional arguments by index and keyword arguments by
+    name, so a name in `ignore` used to match an argument only when the caller
+    passed it by keyword (upstream issue 240). Adding the position of each
+    positional parameter with that name makes the name match the argument
+    however it is passed. Keys of calls that do not pass an ignored parameter
+    positionally are unchanged.
+
+    :param func: callable being memoized
+    :param set ignore: positional or keyword args to ignore
+    :return: `ignore`, or a frozenset of `ignore` plus the resolved positions
+
+    """
+    if not ignore:
+        return ignore
+
+    try:
+        parameters = inspect.signature(func).parameters.values()
+    except (TypeError, ValueError):  # No signature, like some builtins.
+        return ignore
+
+    positions = set()
+
+    for index, parameter in enumerate(parameters):
+        if parameter.kind not in _POSITIONAL_KINDS:
+            break
+        if parameter.name in ignore:
+            positions.add(index)
+
+    if not positions:
+        return ignore
+
+    return frozenset(ignore) | positions
 
 
 class Cache:
@@ -2212,7 +2256,9 @@ class Cache:
         :param float expire: seconds until arguments expire
             (default None, no expiry)
         :param str tag: text to associate with arguments (default None)
-        :param set ignore: positional or keyword args to ignore (default ())
+        :param set ignore: positional or keyword args to ignore (default ());
+            an int ignores the argument at that position, a str ignores
+            the parameter with that name however it is passed
         :return: callable decorator
 
         """
@@ -2223,6 +2269,7 @@ class Cache:
         def decorator(func):
             """Decorator created by memoize() for callable `func`."""
             base = (full_name(func),) if name is None else (name,)
+            ignored = resolve_ignore(func, ignore)
 
             @ft.wraps(func)
             def wrapper(*args, **kwargs):
@@ -2239,7 +2286,7 @@ class Cache:
 
             def __cache_key__(*args, **kwargs):
                 """Make key for cache given function arguments."""
-                return args_to_key(base, args, kwargs, typed, ignore)
+                return args_to_key(base, args, kwargs, typed, ignored)
 
             wrapper.__cache_key__ = __cache_key__
             return wrapper

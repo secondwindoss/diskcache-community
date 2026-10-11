@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover
     # For older versions of Django simply use 300 seconds.
     DEFAULT_TIMEOUT = 300
 
-from .core import ENOVAL, Disk, args_to_key, full_name
+from .core import ENOVAL, Disk, args_to_key, full_name, resolve_ignore
 from .fanout import FanoutCache
 
 
@@ -422,7 +422,9 @@ class DjangoCache(BaseCache):
         :param int version: key version number (default None, cache parameter)
         :param bool typed: cache different types separately (default False)
         :param str tag: text to associate with arguments (default None)
-        :param set ignore: positional or keyword args to ignore (default ())
+        :param set ignore: positional or keyword args to ignore (default ());
+            an int ignores the argument at that position, a str ignores
+            the parameter with that name however it is passed
         :return: callable decorator
 
         """
@@ -433,6 +435,7 @@ class DjangoCache(BaseCache):
         def decorator(func):
             """Decorator created by memoize() for callable `func`."""
             base = (full_name(func),) if name is None else (name,)
+            ignored = resolve_ignore(func, ignore)
 
             @wraps(func)
             def wrapper(*args, **kwargs):
@@ -461,7 +464,7 @@ class DjangoCache(BaseCache):
 
             def __cache_key__(*args, **kwargs):
                 """Make key for cache given function arguments."""
-                return args_to_key(base, args, kwargs, typed, ignore)
+                return args_to_key(base, args, kwargs, typed, ignored)
 
             wrapper.__cache_key__ = __cache_key__
             return wrapper

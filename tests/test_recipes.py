@@ -104,3 +104,14 @@ def test_memoize_stampede(cache):
     while (time.time() - start) < 1:
         worker(100)
     assert state['num'] > 0
+
+
+def test_memoize_stampede_ignore(cache):
+    @dc.memoize_stampede(cache, 10, name='ignored', ignore={'session'})
+    def func(value, session):
+        return value
+
+    assert func(1, object()) == 1
+    assert func(1, session=object()) == 1
+    assert func.__cache_key__(1, 2) == ('ignored', 1, None)
+    assert func.__cache_key__(1, session=2) == ('ignored', 1, None)
