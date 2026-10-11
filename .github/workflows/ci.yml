@@ -1,0 +1,124 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_COLOR: '1'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+jobs:
+
+  lint:
+    name: lint (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [bluecheck, doc8, docs, flake8, isortcheck, mypy, pylint, rstcheck]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install tox
+        run: pip install tox
+      - name: Run ${{ matrix.check }}
+        run: tox -e ${{ matrix.check }}
+
+  test:
+    name: test (${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+        include:
+          - os: macos-latest
+            python: '3.10'
+          - os: macos-latest
+            python: '3.14'
+          - os: windows-latest
+            python: '3.10'
+          - os: windows-latest
+            python: '3.14'
+    env:
+      DJANGO_SETTINGS_MODULE: tests.settings
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install diskcache and test dependencies
+        run: pip install -e . "django==5.2.*" pytest pytest-cov pytest-django pytest-xdist
+      - name: Run tests
+        run: pytest
+
+  django:
+    name: django ${{ matrix.django }} (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - django: '4.2'
+            python: '3.12'
+          - django: '6.0'
+            python: '3.14'
+    env:
+      DJANGO_SETTINGS_MODULE: tests.settings
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install diskcache and test dependencies
+        run: pip install -e . "django==${{ matrix.django }}.*" pytest pytest-cov pytest-django pytest-xdist
+      - name: Run tests
+        run: pytest
+
+  no-django:
+    name: import without Django
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Install diskcache
+        run: pip install .
+      - name: Import diskcache without Django installed
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('django') is not None)"
+          python -W error -c "import diskcache; assert 'DjangoCache' not in diskcache.__all__, diskcache.__all__; print('diskcache', diskcache.__version__, 'imported without Django')"
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [lint, test, django, no-django]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo '${{ toJSON(needs) }}'
+          exit 1
+      - run: echo "All jobs succeeded."
