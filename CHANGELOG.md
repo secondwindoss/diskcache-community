@@ -2,6 +2,12 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Docs
+
+- The documentation is published on Read the Docs at https://diskcache-community.readthedocs.io/, built from `master` on every push; the README links point there instead of at the `.rst` sources (PR #18).
+
 ## 5.7.0 (2026-10-11)
 
 First release under the `diskcache-community` name: upstream commit ebfa37c plus the changes below. The import name stays `diskcache`; the `cache.db` schema, the file layout, the serialization modes, the memoize key format and the persisted settings are unchanged, so a 5.6.3 process opens a directory written by 5.7.0 and the reverse.

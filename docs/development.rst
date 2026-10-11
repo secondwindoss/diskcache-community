@@ -89,6 +89,11 @@ below 98%. The lint checks are tox environments as well::
 
     $ tox -e bluecheck,isortcheck,flake8,mypy,pylint,doc8,rstcheck,docs
 
+`Read the Docs <https://diskcache-community.readthedocs.io/>`_ builds the
+``docs`` directory from ``master`` on every push, configured by
+``.readthedocs.yaml`` with the build dependencies in
+``docs/requirements.txt``.
+
 Stress tests can be run independently as a module. They are kept in the
 tests directory and prefixed with ``stress_test_``. Stress tests accept many
 arguments. Read the help for details.
