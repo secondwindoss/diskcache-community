@@ -30,6 +30,14 @@ def cache():
     shutil.rmtree(cache.directory, ignore_errors=True)
 
 
+def test_hasattr_unknown_attribute(cache):
+    """hasattr must not raise; missing attributes return False (#353)."""
+    assert hasattr(cache, 'timeout') is True
+    assert hasattr(cache, 'definitely_missing_attr_xyz') is False
+    with pytest.raises(AttributeError):
+        _ = cache.definitely_missing_attr_xyz
+
+
 def test_init(cache):
     default_settings = dc.DEFAULT_SETTINGS.copy()
     del default_settings['size_limit']
@@ -314,6 +322,42 @@ def test_pop_timeout(cache):
 
     with mock.patch.object(cache, '_shards', shards):
         assert cache.pop(0) is None
+
+
+def test_get_timeout_expire_time(cache):
+    shards = mock.Mock()
+    shard = mock.Mock()
+    get_func = mock.Mock()
+
+    shards.__getitem__ = mock.Mock(side_effect=lambda key: shard)
+    shard.get = get_func
+    get_func.side_effect = dc.Timeout
+
+    with mock.patch.object(cache, '_shards', shards):
+        assert cache.get(0, expire_time=True) == (None, None)
+        assert cache.get(0, default=1, expire_time=True, tag=True) == (
+            1,
+            None,
+            None,
+        )
+
+
+def test_pop_timeout_expire_time(cache):
+    shards = mock.Mock()
+    shard = mock.Mock()
+    pop_func = mock.Mock()
+
+    shards.__getitem__ = mock.Mock(side_effect=lambda key: shard)
+    shard.pop = pop_func
+    pop_func.side_effect = dc.Timeout
+
+    with mock.patch.object(cache, '_shards', shards):
+        assert cache.pop(0, expire_time=True) == (None, None)
+        assert cache.pop(0, default=1, expire_time=True, tag=True) == (
+            1,
+            None,
+            None,
+        )
 
 
 def test_delete_timeout(cache):

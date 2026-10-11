@@ -13,6 +13,15 @@ from .core import DEFAULT_SETTINGS, ENOVAL, Cache, Disk, Timeout
 from .persistent import Deque, Index
 
 
+def _default_with_meta(default, expire_time, tag):
+    """Match Cache.get/pop: wrap default when expire_time or tag is requested."""
+    if expire_time and tag:
+        return (default, None, None)
+    if expire_time or tag:
+        return (default, None)
+    return default
+
+
 class FanoutCache:
     """Cache that shards keys and values."""
 
@@ -61,9 +70,14 @@ class FanoutCache:
         return self._directory
 
     def __getattr__(self, name):
+        # Raise AttributeError (not AssertionError) so builtins.hasattr() and
+        # introspection tools work. See GitHub issue #353.
         safe_names = {'timeout', 'disk'}
         valid_name = name in DEFAULT_SETTINGS or name in safe_names
-        assert valid_name, 'cannot access {} in cache shard'.format(name)
+        if not valid_name:
+            raise AttributeError(
+                'cannot access {} in cache shard'.format(name)
+            )
         return getattr(self._shards[0], name)
 
     @cl.contextmanager
@@ -284,7 +298,7 @@ class FanoutCache:
         try:
             return shard.get(key, default, read, expire_time, tag, retry)
         except (Timeout, sqlite3.OperationalError):
-            return default
+            return _default_with_meta(default, expire_time, tag)
 
     def __getitem__(self, key):
         """Return corresponding value for `key` from cache.
@@ -350,7 +364,7 @@ class FanoutCache:
         try:
             return shard.pop(key, default, expire_time, tag, retry)
         except Timeout:
-            return default
+            return _default_with_meta(default, expire_time, tag)
 
     def delete(self, key, retry=False):
         """Delete corresponding item for `key` from cache.

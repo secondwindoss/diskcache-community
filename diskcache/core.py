@@ -67,6 +67,48 @@ METADATA = {
     'misses': 0,
 }
 
+# Triggers that keep the "count" and "size" metadata in the Settings table in
+# step with the Cache table, as (name, definition) pairs where the definition
+# is the text that follows "CREATE TRIGGER <name>". Caches written by
+# versions before 5.7.0 store these triggers with double-quoted literals,
+# which SQLite builds compiled with SQLITE_DQS=0 reject (issue #343), so
+# Cache.__init__ compares the stored trigger text with these definitions and
+# recreates the triggers when they differ.
+
+SETTINGS_TRIGGERS = (
+    (
+        'Settings_count_insert',
+        'AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value + 1'
+        " WHERE key = 'count'; END",
+    ),
+    (
+        'Settings_count_delete',
+        'AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value - 1'
+        " WHERE key = 'count'; END",
+    ),
+    (
+        'Settings_size_insert',
+        'AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value + NEW.size'
+        " WHERE key = 'size'; END",
+    ),
+    (
+        'Settings_size_update',
+        'AFTER UPDATE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings'
+        ' SET value = value + NEW.size - OLD.size'
+        " WHERE key = 'size'; END",
+    ),
+    (
+        'Settings_size_delete',
+        'AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value - OLD.size'
+        " WHERE key = 'size'; END",
+    ),
+)
+
 EVICTION_POLICY = {
     'none': {
         'init': None,
@@ -204,7 +246,7 @@ class Disk:
                 return 0, MODE_RAW, None, sqlite3.Binary(value)
             else:
                 filename, full_path = self.filename(key, value)
-                self._write(full_path, io.BytesIO(value), 'xb')
+                self._write(full_path, value, 'xb')
                 return len(value), MODE_BINARY, filename, None
         elif type_value is str:
             filename, full_path = self.filename(key, value)
@@ -224,10 +266,10 @@ class Disk:
                 return 0, MODE_PICKLE, None, sqlite3.Binary(result)
             else:
                 filename, full_path = self.filename(key, value)
-                self._write(full_path, io.BytesIO(result), 'xb')
+                self._write(full_path, result, 'xb')
                 return len(result), MODE_PICKLE, filename, None
 
-    def _write(self, full_path, iterator, mode, encoding=None):
+    def _write(self, full_path, iterator_or_bytes, mode, encoding=None):
         full_dir, _ = op.split(full_path)
 
         for count in range(1, 11):
@@ -245,11 +287,15 @@ class Disk:
                 continue
 
             with writer:
-                size = 0
-                for chunk in iterator:
-                    size += len(chunk)
-                    writer.write(chunk)
-                return size
+                if isinstance(iterator_or_bytes, bytes):
+                    writer.write(iterator_or_bytes)
+                    return len(iterator_or_bytes)
+                else:
+                    size = 0
+                    for chunk in iterator_or_bytes:
+                        size += len(chunk)
+                        writer.write(chunk)
+                    return size
 
     def fetch(self, mode, filename, value, read):
         """Convert fields `mode`, `filename`, and `value` from Cache table to
@@ -541,41 +587,10 @@ class Cache:
 
         # Use triggers to keep Metadata updated.
 
-        sql(
-            'CREATE TRIGGER IF NOT EXISTS Settings_count_insert'
-            ' AFTER INSERT ON Cache FOR EACH ROW BEGIN'
-            ' UPDATE Settings SET value = value + 1'
-            ' WHERE key = "count"; END'
-        )
+        for name, definition in SETTINGS_TRIGGERS:
+            sql('CREATE TRIGGER IF NOT EXISTS %s %s' % (name, definition))
 
-        sql(
-            'CREATE TRIGGER IF NOT EXISTS Settings_count_delete'
-            ' AFTER DELETE ON Cache FOR EACH ROW BEGIN'
-            ' UPDATE Settings SET value = value - 1'
-            ' WHERE key = "count"; END'
-        )
-
-        sql(
-            'CREATE TRIGGER IF NOT EXISTS Settings_size_insert'
-            ' AFTER INSERT ON Cache FOR EACH ROW BEGIN'
-            ' UPDATE Settings SET value = value + NEW.size'
-            ' WHERE key = "size"; END'
-        )
-
-        sql(
-            'CREATE TRIGGER IF NOT EXISTS Settings_size_update'
-            ' AFTER UPDATE ON Cache FOR EACH ROW BEGIN'
-            ' UPDATE Settings'
-            ' SET value = value + NEW.size - OLD.size'
-            ' WHERE key = "size"; END'
-        )
-
-        sql(
-            'CREATE TRIGGER IF NOT EXISTS Settings_size_delete'
-            ' AFTER DELETE ON Cache FOR EACH ROW BEGIN'
-            ' UPDATE Settings SET value = value - OLD.size'
-            ' WHERE key = "size"; END'
-        )
+        self._update_triggers(sql)
 
         # Create tag index if requested.
 
@@ -673,6 +688,54 @@ class Cache:
                     time.sleep(0.001)
 
         return _execute_with_retry
+
+    def _triggers_stale(self, sql):
+        # Compare the trigger text stored in sqlite_master with the current
+        # definitions. SQLite stores the statement without IF NOT EXISTS,
+        # with the leading keywords in upper case and the whitespace after
+        # them collapsed, so compare whitespace-normalized text.
+
+        names = tuple(name for name, _ in SETTINGS_TRIGGERS)
+        select = (
+            'SELECT name, sql FROM sqlite_master'
+            " WHERE type = 'trigger' AND name IN (%s)"
+            % ', '.join('?' * len(names))
+        )
+        stored = dict(sql(select, names).fetchall())
+
+        for name, definition in SETTINGS_TRIGGERS:
+            expected = 'CREATE TRIGGER %s %s' % (name, definition)
+            current = ' '.join(stored.get(name, '').split())
+            if current != ' '.join(expected.split()):
+                return True
+
+        return False
+
+    def _update_triggers(self, sql):
+        # Recreate the Settings triggers only when their stored text differs
+        # from SETTINGS_TRIGGERS, as it does in caches written by versions
+        # before 5.7.0 (double-quoted literals, PR #311 and issue #343).
+        # The comparison keeps DDL off the common path: dropping or creating
+        # a trigger bumps the schema cookie, which makes every other
+        # connection re-prepare its statements, and it needs an exclusive
+        # lock on the database. All five triggers are replaced inside one
+        # IMMEDIATE transaction so no writer can observe a missing trigger.
+
+        if not self._triggers_stale(sql):
+            return
+
+        sql('BEGIN IMMEDIATE')
+
+        try:
+            if self._triggers_stale(sql):  # Another opener may have won.
+                for name, definition in SETTINGS_TRIGGERS:
+                    sql('DROP TRIGGER IF EXISTS %s' % name)
+                    sql('CREATE TRIGGER %s %s' % (name, definition))
+            sql('COMMIT')
+        except BaseException:
+            with cl.suppress(sqlite3.OperationalError):
+                sql('ROLLBACK')
+            raise
 
     @cl.contextmanager
     def transact(self, retry=False):
@@ -1177,10 +1240,10 @@ class Cache:
 
         else:  # Slow path, transaction required.
             cache_hit = (
-                'UPDATE Settings SET value = value + 1 WHERE key = "hits"'
+                "UPDATE Settings SET value = value + 1 WHERE key = 'hits'"
             )
             cache_miss = (
-                'UPDATE Settings SET value = value + 1 WHERE key = "misses"'
+                "UPDATE Settings SET value = value + 1 WHERE key = 'misses'"
             )
 
             with self._transact(retry) as (sql, _):

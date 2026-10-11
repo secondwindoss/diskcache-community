@@ -1405,3 +1405,114 @@ def test_memoize_iter(cache):
     assert len(cache) == 3
     for key in cache:
         assert cache[key] == 6
+
+
+LEGACY_TRIGGERS = {
+    # Trigger text written by diskcache 5.6.3 and earlier: double-quoted
+    # literals, which SQLite builds compiled with SQLITE_DQS=0 reject.
+    'Settings_count_insert': (
+        'AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value + 1'
+        ' WHERE key = "count"; END'
+    ),
+    'Settings_count_delete': (
+        'AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value - 1'
+        ' WHERE key = "count"; END'
+    ),
+    'Settings_size_insert': (
+        'AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value + NEW.size'
+        ' WHERE key = "size"; END'
+    ),
+    'Settings_size_update': (
+        'AFTER UPDATE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings'
+        ' SET value = value + NEW.size - OLD.size'
+        ' WHERE key = "size"; END'
+    ),
+    'Settings_size_delete': (
+        'AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+        ' UPDATE Settings SET value = value - OLD.size'
+        ' WHERE key = "size"; END'
+    ),
+}
+
+
+def stored_triggers(cache):
+    select = "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
+    return dict(cache._sql(select).fetchall())
+
+
+def test_legacy_triggers_recreated(cache):
+    directory = cache.directory
+    cache[0] = b'x' * 2**16  # Stored in a file, so size is tracked.
+
+    for name, definition in LEGACY_TRIGGERS.items():
+        cache._sql('DROP TRIGGER %s' % name)
+        try:
+            cache._sql('CREATE TRIGGER %s %s' % (name, definition))
+        except sqlite3.OperationalError:
+            pytest.skip('SQLite build rejects double-quoted literals')
+
+    assert all('"' in sql for sql in stored_triggers(cache).values())
+    cache.close()
+
+    other = dc.Cache(directory)
+
+    try:
+        definitions = dict(dc.core.SETTINGS_TRIGGERS)
+        triggers = stored_triggers(other)
+        assert set(triggers) == set(definitions)
+        for name, sql in triggers.items():
+            assert sql == 'CREATE TRIGGER %s %s' % (name, definitions[name])
+        assert len(other) == 1
+        assert other.reset('size') == 2**16
+        other[1] = b'y' * 2**16
+        assert len(other) == 2
+        assert other.reset('size') == 2**17
+        del other[0]
+        assert len(other) == 1
+        assert other.reset('size') == 2**16
+        assert other.check() == []
+    finally:
+        other.close()
+
+
+def test_reopen_leaves_schema_unchanged(cache):
+    directory = cache.directory
+    cache[0] = 0
+    cache.close()
+
+    other = dc.Cache(directory)
+    ((before,),) = other._sql('PRAGMA schema_version').fetchall()
+    other.close()
+
+    other = dc.Cache(directory)
+    ((after,),) = other._sql('PRAGMA schema_version').fetchall()
+    other.close()
+
+    assert before == after
+
+
+def test_update_triggers_race(cache):
+    # Another opener recreated the triggers between the check and the lock.
+    stale = mock.Mock(side_effect=[True, False])
+
+    with mock.patch.object(cache, '_triggers_stale', stale):
+        cache._update_triggers(cache._sql_retry)
+
+    assert stale.call_count == 2
+    cache[0] = 0  # Raises Timeout if a transaction were left open.
+    assert cache.check() == []
+
+
+def test_update_triggers_rollback(cache):
+    stale = mock.Mock(side_effect=[True, RuntimeError])
+
+    with mock.patch.object(cache, '_triggers_stale', stale):
+        with pytest.raises(RuntimeError):
+            cache._update_triggers(cache._sql_retry)
+
+    cache[0] = 0  # Raises Timeout if a transaction were left open.
+    assert cache.check() == []
