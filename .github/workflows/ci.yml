@@ -93,6 +93,38 @@ jobs:
       - name: Run tests
         run: pytest
 
+  sqlite-dqs:
+    name: sqlite without double-quoted strings
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DJANGO_SETTINGS_MODULE: tests.settings
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create a conda environment whose SQLite is built with SQLITE_DQS=0
+        run: |
+          "$CONDA/bin/conda" create -y -q -n dqs --override-channels -c conda-forge python=3.12 "sqlite>=3.49" pip
+          echo "$CONDA/envs/dqs/bin" >> "$GITHUB_PATH"
+      - name: Check that this SQLite rejects double-quoted string literals
+        run: |
+          python - <<'PY'
+          import sqlite3
+          import sys
+
+          print('sqlite', sqlite3.sqlite_version, 'python', sys.version.split()[0])
+          try:
+              sqlite3.connect(':memory:').execute('SELECT "not a column"')
+          except sqlite3.OperationalError as error:
+              print('double-quoted strings are rejected:', error)
+          else:
+              sys.exit('this SQLite accepts double-quoted strings, so the job proves nothing')
+          PY
+      - name: Install diskcache and test dependencies
+        run: pip install -e . "django==5.2.*" pytest pytest-cov pytest-django pytest-xdist
+      - name: Run tests
+        run: pytest
+
   no-django:
     name: import without Django
     runs-on: ubuntu-latest
@@ -113,7 +145,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [lint, test, django, no-django]
+    needs: [lint, test, django, sqlite-dqs, no-django]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job did not succeed
