@@ -87,7 +87,7 @@ the current interpreter. The options in the ``[pytest]`` section of
 files and fail the run if branch coverage of the ``diskcache`` package drops
 below 98%. The lint checks are tox environments as well::
 
-    $ tox -e bluecheck,isortcheck,flake8,mypy,pylint,doc8,rstcheck,docs
+    $ tox -e bluecheck,isortcheck,flake8,mypy,pylint,doc8,docs
 
 `Read the Docs <https://diskcache-community.readthedocs.io/>`_ builds the
 ``docs`` directory from ``master`` on every push, configured by
