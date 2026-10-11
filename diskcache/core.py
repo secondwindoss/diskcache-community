@@ -168,6 +168,24 @@ def native_filename(filename):
     return filename.replace('/', os.sep)
 
 
+def _makedirs_private(directory):
+    """Create `directory` and its missing parents with mode ``0o700``.
+
+    Unlike :func:`os.makedirs`, the mode applies to every directory created,
+    not only to the last one, so no directory the cache creates is readable
+    by other users. Directories that already exist keep their mode. Windows
+    ignores the mode bits.
+
+    """
+    parent = op.dirname(directory)
+
+    if parent and parent != directory and not op.isdir(parent):
+        _makedirs_private(parent)
+
+    with cl.suppress(FileExistsError):
+        os.mkdir(directory, 0o700)
+
+
 class Disk:
     """Cache key and value serialization for SQLite database and files."""
 
@@ -300,7 +318,7 @@ class Disk:
 
         for count in range(1, 11):
             with cl.suppress(OSError):
-                os.makedirs(full_dir)
+                _makedirs_private(full_dir)
 
             try:
                 # Another cache may have deleted the directory before
@@ -744,6 +762,11 @@ class Cache:
         :param disk: Disk type or subclass for serialization
         :param settings: any of DEFAULT_SETTINGS
 
+        The cache directory, any missing parents and the subdirectories that
+        hold large values are created with mode ``0o700``, so only the owner
+        can read them. A directory that already exists keeps its mode; the
+        cache never changes permissions. Windows ignores the mode bits.
+
         """
         try:
             assert issubclass(disk, Disk)
@@ -763,7 +786,7 @@ class Cache:
 
         if not op.isdir(directory):
             try:
-                os.makedirs(directory, 0o755)
+                _makedirs_private(op.abspath(directory))
             except OSError as error:
                 if error.errno != errno.EEXIST:
                     raise EnvironmentError(

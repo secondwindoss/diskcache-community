@@ -8,6 +8,7 @@ import os.path as op
 import pathlib
 import pickle
 import shutil
+import stat
 import subprocess as sp
 import tempfile
 import threading
@@ -727,3 +728,39 @@ def test_custom_filename_disk():
             assert content == str(count) * int(1e5)
 
     shutil.rmtree(cache.directory, ignore_errors=True)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permission bits')
+def test_private_directories():
+    umask = os.umask(0)
+    root = tempfile.mkdtemp()
+
+    try:
+        directory = op.join(root, 'fanout')
+
+        with dc.FanoutCache(directory, shards=2) as cache:
+            cache[0] = b'x' * 2**16  # Stored in a file under a shard.
+            cache.cache('sub/nested')[0] = 0
+            cache.deque('dq').append(0)
+            cache.index('ix')[0] = 0
+
+        modes = {
+            op.join(dirpath, name): stat.S_IMODE(
+                os.stat(op.join(dirpath, name)).st_mode
+            )
+            for dirpath, dirnames, _ in os.walk(root)
+            for name in dirnames
+        }
+        expected = [
+            directory,
+            op.join(directory, '000'),
+            op.join(directory, '001'),
+            op.join(directory, 'cache', 'sub', 'nested'),
+            op.join(directory, 'deque', 'dq'),
+            op.join(directory, 'index', 'ix'),
+        ]
+        assert all(path in modes for path in expected), modes
+        assert all(mode == 0o700 for mode in modes.values()), modes
+    finally:
+        os.umask(umask)
+        shutil.rmtree(root, ignore_errors=True)
