@@ -1,8 +1,9 @@
 DiskCache Development
 =====================
 
-:doc:`DiskCache <index>` development is lead by Grant Jenks
-<contact@grantjenks.com>.
+:doc:`DiskCache <index>` is developed in the `GitHub repository`_ of the
+diskcache-community fork. Questions and ideas go to `Discussions`_, bugs to
+the `issue tracker`_.
 
 Collaborators Welcome
 ---------------------
@@ -10,10 +11,11 @@ Collaborators Welcome
 #. Search issues or open a new issue to start a discussion around a bug.
 #. Fork the `GitHub repository`_ and make your changes in a new branch.
 #. Write a test which shows the bug was fixed.
-#. Send a pull request and message the development lead until its merged and
-   published.
+#. Send a pull request. It merges once CI is green and it has been reviewed.
 
-.. _`GitHub repository`: https://github.com/grantjenks/python-diskcache
+.. _`GitHub repository`: https://github.com/secondwindoss/diskcache-community
+.. _`Discussions`: https://github.com/secondwindoss/diskcache-community/discussions
+.. _`issue tracker`: https://github.com/secondwindoss/diskcache-community/issues
 
 Requests for Contributions
 --------------------------
@@ -40,24 +42,24 @@ Get the Code
 
 You can either clone the public repository::
 
-    $ git clone https://github.com/grantjenks/python-diskcache.git
+    $ git clone https://github.com/secondwindoss/diskcache-community.git
 
-Download the `tarball <https://github.com/grantjenks/python-diskcache/tarball/master>`_::
+Download the `tarball <https://github.com/secondwindoss/diskcache-community/tarball/master>`_::
 
-    $ curl -OL https://github.com/grantjenks/python-diskcache/tarball/master
+    $ curl -OL https://github.com/secondwindoss/diskcache-community/tarball/master
 
-Or, download the `zipball <https://github.com/grantjenks/python-diskcache/zipball/master>`_::
+Or, download the `zipball <https://github.com/secondwindoss/diskcache-community/zipball/master>`_::
 
-    $ curl -OL https://github.com/grantjenks/python-diskcache/zipball/master
+    $ curl -OL https://github.com/secondwindoss/diskcache-community/zipball/master
 
 Installing Dependencies
 -----------------------
 
 Install development dependencies with `pip <http://www.pip-installer.org/>`_::
 
-    $ pip install -r requirements.txt
+    $ pip install -r requirements-dev.txt
 
-All packages for running tests will be installed.
+All packages for running tests and the lint checks will be installed.
 
 Additional packages like ``pylibmc`` and ``redis`` along with their server
 counterparts are necessary for some benchmarks.
@@ -65,12 +67,13 @@ counterparts are necessary for some benchmarks.
 Testing
 -------
 
-:doc:`DiskCache <index>` currently tests against five versions of Python:
+:doc:`DiskCache <index>` tests against five versions of Python:
 
-* CPython 3.5
-* CPython 3.6
-* CPython 3.7
-* CPython 3.8
+* CPython 3.10
+* CPython 3.11
+* CPython 3.12
+* CPython 3.13
+* CPython 3.14
 
 Testing uses `tox <https://pypi.python.org/pypi/tox>`_. If you don't want to
 install all the development requirements, then, after downloading, you can
@@ -78,66 +81,17 @@ simply run::
 
     $ tox
 
-::
+``tox -e py`` runs the test suite with `pytest <https://docs.pytest.org/>`_ in
+the current interpreter. The options in the ``[pytest]`` section of
+``tox.ini`` run the tests in parallel, collect the doctests from the ``.rst``
+files and fail the run if branch coverage of the ``diskcache`` package drops
+below 98%. The lint checks are tox environments as well::
 
-   $ tox
-   GLOB sdist-make: python-diskcache/setup.py
-   py27 inst-nodeps: python-diskcache/.tox/dist/diskcache-0.9.0.zip
-   py27 runtests: PYTHONHASHSEED='3527394681'
-   py27 runtests: commands[0] | nosetests
-   .........................................................................
-   ----------------------------------------------------------------------
-   Ran 98 tests in 29.404s
+    $ tox -e bluecheck,isortcheck,flake8,mypy,pylint,doc8,rstcheck,docs
 
-   OK
-   py34 inst-nodeps: python-diskcache/.tox/dist/diskcache-0.9.0.zip
-   py34 runtests: PYTHONHASHSEED='3527394681'
-   py34 runtests: commands[0] | nosetests
-   .........................................................................
-   ----------------------------------------------------------------------
-   Ran 98 tests in 22.841s
-
-   OK
-   py35 inst-nodeps: python-diskcache/.tox/dist/diskcache-0.9.0.zip
-   py35 runtests: PYTHONHASHSEED='3527394681'
-   py35 runtests: commands[0] | nosetests
-   .........................................................................
-   ----------------------------------------------------------------------
-   Ran 98 tests in 23.803s
-
-   OK
-   ____________________ summary ____________________
-     py27: commands succeeded
-     py34: commands succeeded
-     py35: commands succeeded
-     congratulations :)
-
-Coverage testing uses `nose <https://nose.readthedocs.org>`_:
-
-::
-
-   $ nosetests --cover-erase --with-coverage --cover-package diskcache
-   .........................................................................
-   Name                       Stmts   Miss  Cover   Missing
-   --------------------------------------------------------
-   diskcache.py                  13      2    85%   9-11
-   diskcache/core.py            442      4    99%   22-25
-   diskcache/djangocache.py      43      0   100%
-   diskcache/fanout.py           66      0   100%
-   --------------------------------------------------------
-   TOTAL                        564      6    99%
-   ----------------------------------------------------------------------
-   Ran 98 tests in 28.766s
-
-   OK
-
-It's normal to not see 100% coverage. Some code is specific to the Python
-runtime.
-
-Stress testing is also based on nose but can be run independently as a
-module. Stress tests are kept in the tests directory and prefixed with
-``stress_test_``. Stress tests accept many arguments. Read the help for
-details.
+Stress tests can be run independently as a module. They are kept in the
+tests directory and prefixed with ``stress_test_``. Stress tests accept many
+arguments. Read the help for details.
 
 ::
 
@@ -173,8 +127,8 @@ details.
      --no-delete           Do not delete operations data (default: True)
      -v EVICTION_POLICY, --eviction-policy EVICTION_POLICY
 
-If stress exits normally then it worked successfully. Some stress is run by tox
-and nose but the iteration count is limited. More rigorous testing requires
+If stress exits normally then it worked successfully. Some stress is run by the
+test suite but the iteration count is limited. More rigorous testing requires
 increasing the iteration count to millions. At that level, it's best to just
 let it run overnight. Stress testing will stop at the first failure.
 
