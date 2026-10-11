@@ -961,6 +961,59 @@ directory with the default :class:`Disk <diskcache.Disk>` must be trusted, and
 a reader using :class:`SafeDisk <diskcache.SafeDisk>` raises
 :exc:`pickle.UnpicklingError` on those rows.
 
+.. _tutorial-read-only:
+
+Read-Only Caches
+----------------
+
+Opening an existing cache writes nothing to it: settings are written only
+when they differ from the stored ones, and the schema, triggers and tag index
+are left alone when they already match. A cache directory kept as a test
+fixture therefore stays byte-for-byte identical across runs, as long as the
+eviction policy does not record access times and statistics are off.
+
+A cache whose database file or directory is not writable opens read-only
+without any argument, so a cache baked into a read-only container layer or a
+read-only mount works for reads. The same can be requested for a writable
+directory:
+
+    >>> cache = Cache('/tmp/mycachedir')
+    >>> cache['key'] = 'value'
+    >>> cache.close()
+    >>> snapshot = Cache('/tmp/mycachedir', read_only=True)
+    >>> snapshot.read_only
+    True
+    >>> snapshot['key']
+    'value'
+
+Reads, iteration, ``len``, :meth:`volume <diskcache.Cache.volume>`,
+:meth:`check <diskcache.Cache.check>`, memoized calls that hit and the
+read-only methods of :class:`FanoutCache <diskcache.FanoutCache>`,
+:class:`Deque <diskcache.Deque>` and :class:`Index <diskcache.Index>` all
+work. Every method that would write raises :exc:`ReadOnlyError
+<diskcache.ReadOnlyError>`, a subclass of :exc:`sqlite3.OperationalError`,
+before anything is written:
+
+    >>> snapshot['other'] = 'value'
+    Traceback (most recent call last):
+        ...
+    diskcache.core.ReadOnlyError: cache in '/tmp/mycachedir' is read-only
+    >>> snapshot.close()
+
+A read-only cache cannot record hits, misses or access times, so
+:meth:`stats <diskcache.Cache.stats>` returns the stored counters without
+enabling or resetting them, the ``least-recently-used`` and
+``least-frequently-used`` policies read without updating, and expired items
+are skipped instead of removed. The ``read_only`` argument is not a setting
+and is never persisted; passing it through ``FanoutCache(directory,
+read_only=True)`` or the Django ``OPTIONS`` works the same way.
+
+Two details of the file system. When the directory is writable, SQLite may
+create the ``cache.db-shm`` and ``cache.db-wal`` files next to a read-only
+database while reading it. When the directory is not writable, the database
+is opened in SQLite's immutable mode, which skips those files and all
+locking; that is safe only because nothing can write to that directory.
+
 Caveats
 -------
 
