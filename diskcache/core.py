@@ -23,6 +23,7 @@ import threading
 import time
 import uuid
 import warnings
+import weakref
 import zlib
 
 
@@ -795,6 +796,207 @@ def resolve_ignore(func, ignore):
     return frozenset(ignore) | positions
 
 
+class _ThreadSentinel:  # pylint: disable=too-few-public-methods
+    """Marker kept in a Cache's thread-local state next to its connection.
+
+    Thread-local state is destroyed when its thread exits, so once a weak
+    reference to the sentinel is dead the connection's thread is gone and
+    the connection may be closed from another thread.
+    """
+
+    __slots__ = ('__weakref__',)
+
+
+class _Connections:
+    """Registry of the SQLite connections one Cache opened in this process.
+
+    Connections are opened per thread (see ``Cache._con``). The registry
+    lets ``Cache.close`` and garbage collection close the connections of
+    threads that have already exited, and lets a forked child process
+    forget the connections it inherited without closing them.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._items = {}
+        self.pid = os.getpid()
+
+    def add(self, ident, sentinel, con):
+        """Register `con` for thread `ident`; return connections to close.
+
+        The returned connections belong to threads that have exited, or are
+        an earlier connection of the same thread whose thread-local state
+        was lost (a foreign thread that got a new interpreter thread state).
+        """
+        with self._lock:
+            stale = self._pop_stale()
+            previous = self._items.pop(ident, None)
+            self._items[ident] = (weakref.ref(sentinel), con)
+        if previous is not None and previous[1] is not con:
+            stale.append(previous[1])
+        return stale
+
+    def pop(self, ident):
+        """Remove the connection of thread `ident` and return it with the
+        connections of threads that have exited, all to be closed."""
+        with self._lock:
+            stale = self._pop_stale()
+            item = self._items.pop(ident, None)
+        if item is not None:
+            stale.append(item[1])
+        return stale
+
+    def _pop_stale(self):
+        # The caller holds the lock.
+        stale = []
+        for ident, (ref, con) in list(self._items.items()):
+            if ref() is None:
+                del self._items[ident]
+                stale.append(con)
+        return stale
+
+    def close_all(self):
+        """Close every registered connection.
+
+        Runs when the Cache is garbage collected. In a child process the
+        connections were inherited and are discarded instead.
+        """
+        if os.getpid() != self.pid:
+            self.discard()
+            return
+        with self._lock:
+            cons = [con for _, con in self._items.values()]
+            self._items.clear()
+        for con in cons:
+            con.close()
+
+    def discard(self):
+        """Forget the connections after a fork without closing them.
+
+        SQLite forbids a child process from using, or even closing, a
+        connection the parent opened: the child inherits the parent's lock
+        state, and closing may roll back or unlock underneath the parent
+        and corrupt the database. The connections stay referenced for the
+        life of the child so garbage collection never closes them either;
+        their file descriptors leak on purpose, as SQLite recommends.
+        """
+        _INHERITED_CONNECTIONS.extend(con for _, con in self._items.values())
+        self._items = {}
+        self._lock = threading.Lock()  # The parent's lock may be held.
+        self.pid = os.getpid()
+
+
+class _ForkGate:
+    """Delay ``os.fork`` while another thread is inside a transaction.
+
+    A child process inherits the parent's SQLite state as of the fork. A
+    transaction in flight in another thread leaves the child's copy of that
+    state holding a write lock that nothing in the child ever releases, so
+    the child's own writes to that database would fail with ``Timeout``.
+    The gate holds new transactions back and makes fork wait, up to
+    `timeout` seconds, until the transactions in flight in other threads
+    finish; the held-back transactions proceed once the fork is done. The
+    forking thread's own transaction cannot be waited for and is not
+    counted; forking inside a transaction is unsupported.
+    """
+
+    timeout = 60
+
+    def __init__(self):
+        self._cond = threading.Condition(threading.Lock())
+        self._active = 0
+        self._forking = False
+        self._local = threading.local()
+
+    def __enter__(self):
+        depth = getattr(self._local, 'depth', 0)
+        if not depth:
+            with self._cond:
+                while self._forking:
+                    self._cond.wait()
+                self._active += 1
+        self._local.depth = depth + 1
+
+    def __exit__(self, *exception):
+        depth = getattr(self._local, 'depth', 0) - 1
+        if depth < 0:
+            return  # A child process reset the gate during a transaction.
+        self._local.depth = depth
+        if not depth:
+            with self._cond:
+                self._active -= 1
+                if not self._active:
+                    self._cond.notify_all()
+
+    def before_fork(self):
+        """Hold new transactions back, then wait for the active ones."""
+        own = 1 if getattr(self._local, 'depth', 0) else 0
+        deadline = time.monotonic() + self.timeout
+        with self._cond:
+            while self._forking:  # Another thread is forking.
+                self._cond.wait()
+            self._forking = True
+            while self._active > own:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    warnings.warn(
+                        'forking while a Cache transaction is in progress in'
+                        ' another thread; the child process may be unable'
+                        ' to write to that cache',
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    break
+                self._cond.wait(remaining)
+
+    def after_fork_parent(self):
+        """Let transactions proceed again."""
+        with self._cond:
+            self._forking = False
+            self._cond.notify_all()
+
+    def after_fork_child(self):
+        """Start over: the child has one thread and no transactions."""
+        self._cond = threading.Condition(threading.Lock())
+        self._active = 0
+        self._forking = False
+        self._local = threading.local()
+
+
+_FORK_GATE = _ForkGate()
+
+# Every live Cache, so a child process can forget inherited connections.
+_CACHES: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
+
+# Connections inherited from a parent process, kept open on purpose.
+_INHERITED_CONNECTIONS: list[sqlite3.Connection] = []
+
+
+def _before_fork():
+    # SQLite advises closing every connection before fork. The gate waits
+    # for other threads' transactions; then each cache closes the forking
+    # thread's own connection and those of exited threads, which the
+    # parent reopens on next use. Connections held by other live threads
+    # cannot be closed here and are discarded in the child.
+    _FORK_GATE.before_fork()
+    for cache in list(_CACHES):
+        cache._close_before_fork()  # pylint: disable=protected-access
+
+
+def _after_fork_in_child():
+    _FORK_GATE.after_fork_child()
+    for cache in list(_CACHES):
+        cache._discard_connections()  # pylint: disable=protected-access
+
+
+if hasattr(os, 'register_at_fork'):
+    os.register_at_fork(
+        before=_before_fork,
+        after_in_parent=_FORK_GATE.after_fork_parent,
+        after_in_child=_after_fork_in_child,
+    )
+
+
 class Cache:
     """Disk and file backed cache."""
 
@@ -826,7 +1028,11 @@ class Cache:
         self._directory = directory
         self._timeout = 0  # Manually handle retries during initialization.
         self._local = threading.local()
+        self._cons = _Connections()
         self._txn_id = None
+        _CACHES.add(self)
+        finalizer = weakref.finalize(self, self._cons.close_all)
+        finalizer.atexit = False
 
         if not op.isdir(directory):
             try:
@@ -962,41 +1168,70 @@ class Cache:
 
     @property
     def _con(self):
-        # Check process ID to support process forking. If the process
-        # ID changes, close the connection and update the process ID.
+        # Check the process ID to support forking. If it changed, the
+        # connections were inherited from the parent process: forget them
+        # without closing them (see _Connections.discard) and open new ones.
+        # The at-fork handler normally does this before the cache is used.
 
-        local_pid = getattr(self._local, 'pid', None)
-        pid = os.getpid()
-
-        if local_pid != pid:
-            self.close()
-            self._local.pid = pid
+        if self._cons.pid != os.getpid():
+            self._discard_connections()
 
         con = getattr(self._local, 'con', None)
 
         if con is None:
-            con = self._local.con = sqlite3.connect(
-                op.join(self._directory, DBNAME),
-                timeout=self._timeout,
-                isolation_level=None,
-            )
-
-            # Some SQLite pragmas work on a per-connection basis so
-            # query the Settings table and reset the pragmas. The
-            # Settings table may not exist so catch and ignore the
-            # OperationalError that may occur.
-
-            try:
-                select = 'SELECT key, value FROM Settings'
-                settings = con.execute(select).fetchall()
-            except sqlite3.OperationalError:
-                pass
-            else:
-                for key, value in settings:
-                    if key.startswith('sqlite_'):
-                        self.reset(key, value, update=False)
+            con = self._connect()
 
         return con
+
+    def _connect(self):
+        # check_same_thread=False lets close() and the connection registry
+        # close a connection from a thread other than the one that opened
+        # it, once that thread has exited. Each connection is still used by
+        # one thread at a time, which is all SQLite's multi-thread mode asks.
+
+        con = sqlite3.connect(
+            op.join(self._directory, DBNAME),
+            timeout=self._timeout,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        sentinel = _ThreadSentinel()
+        stale = self._cons.add(threading.get_ident(), sentinel, con)
+        self._local.con = con
+        self._local.sentinel = sentinel
+
+        for old in stale:
+            old.close()
+
+        # Some SQLite pragmas work on a per-connection basis so
+        # query the Settings table and reset the pragmas. The
+        # Settings table may not exist so catch and ignore the
+        # OperationalError that may occur.
+
+        try:
+            select = 'SELECT key, value FROM Settings'
+            settings = con.execute(select).fetchall()
+        except sqlite3.OperationalError:
+            pass
+        else:
+            for key, value in settings:
+                if key.startswith('sqlite_'):
+                    self.reset(key, value, update=False)
+
+        return con
+
+    def _close_before_fork(self):
+        # Called in the parent right before fork. Inside a transaction the
+        # connection cannot be closed; forking there is unsupported.
+        if self._txn_id != threading.get_ident():
+            self.close()
+
+    def _discard_connections(self):
+        # In a child process: forget the connections inherited from the
+        # parent without closing them, and start with fresh per-thread state.
+        self._cons.discard()
+        self._local = threading.local()
+        self._txn_id = None
 
     @property
     def _sql(self):
@@ -1110,44 +1345,45 @@ class Cache:
 
     @cl.contextmanager
     def _transact(self, retry=False, filename=None):
-        sql = self._sql
-        filenames = []
-        _disk_remove = self._disk.remove
-        tid = threading.get_ident()
-        txn_id = self._txn_id
+        with _FORK_GATE:
+            sql = self._sql
+            filenames = []
+            _disk_remove = self._disk.remove
+            tid = threading.get_ident()
+            txn_id = self._txn_id
 
-        if tid == txn_id:
-            begin = False
-        else:
-            while True:
-                try:
-                    sql('BEGIN IMMEDIATE')
-                    begin = True
-                    self._txn_id = tid
-                    break
-                except sqlite3.OperationalError:
-                    if retry:
-                        continue
-                    if filename is not None:
-                        _disk_remove(filename)
-                    raise Timeout from None
+            if tid == txn_id:
+                begin = False
+            else:
+                while True:
+                    try:
+                        sql('BEGIN IMMEDIATE')
+                        begin = True
+                        self._txn_id = tid
+                        break
+                    except sqlite3.OperationalError:
+                        if retry:
+                            continue
+                        if filename is not None:
+                            _disk_remove(filename)
+                        raise Timeout from None
 
-        try:
-            yield sql, filenames.append
-        except BaseException:
-            if begin:
-                assert self._txn_id == tid
-                self._txn_id = None
-                sql('ROLLBACK')
-            raise
-        else:
-            if begin:
-                assert self._txn_id == tid
-                self._txn_id = None
-                sql('COMMIT')
-            for name in filenames:
-                if name is not None:
-                    _disk_remove(name)
+            try:
+                yield sql, filenames.append
+            except BaseException:
+                if begin:
+                    assert self._txn_id == tid
+                    self._txn_id = None
+                    sql('ROLLBACK')
+                raise
+            else:
+                if begin:
+                    assert self._txn_id == tid
+                    self._txn_id = None
+                    sql('COMMIT')
+                for name in filenames:
+                    if name is not None:
+                        _disk_remove(name)
 
     def set(self, key, value, expire=None, read=False, tag=None, retry=False):
         """Set `key` and `value` item in cache.
@@ -2746,18 +2982,32 @@ class Cache:
         return total_size
 
     def close(self):
-        """Close database connection."""
-        con = getattr(self._local, 'con', None)
+        """Close database connection.
 
-        if con is None:
+        Closes the connection opened by the calling thread and the
+        connections of threads that have exited. Connections that other
+        live threads use stay open. The cache reconnects on next use.
+
+        """
+        if self._cons.pid != os.getpid():
+            self._discard_connections()
             return
 
-        con.close()
+        local = self._local
+        con = getattr(local, 'con', None)
+        cons = self._cons.pop(threading.get_ident())
 
-        try:
-            delattr(self._local, 'con')
-        except AttributeError:
-            pass
+        if con is not None and con not in cons:
+            cons.append(con)
+
+        for name in ('con', 'sentinel'):
+            try:
+                delattr(local, name)
+            except AttributeError:
+                pass
+
+        for con in cons:
+            con.close()
 
     def __enter__(self):
         # Create connection in thread.
