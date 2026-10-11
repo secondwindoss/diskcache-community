@@ -4,6 +4,10 @@ DiskCache: Disk Backed Cache
 `DiskCache`_ is an Apache2 licensed disk and file backed cache library, written
 in pure-Python, and compatible with Django.
 
+**This is a community fork.** It is published on PyPI as
+``diskcache-community`` and imported as ``diskcache``. See `About this fork`_
+for why it exists and how to migrate.
+
 The cloud-based computing of 2023 puts a premium on memory. Gigabytes of empty
 space is left on disks as processes vie for memory. Among these processes is
 Memcached (and sometimes Redis) which is used as a cache. Wouldn't it be nice
@@ -43,6 +47,57 @@ cache performance can match and exceed industry-standard solutions. There's no
 need for a C compiler or running another process. Performance is a feature and
 testing has 100% coverage with unit tests and hours of stress.
 
+About this fork
+---------------
+
+`diskcache-community`_ is a community fork of `python-diskcache`_ by `Grant
+Jenks`_. The last upstream release, 5.6.3, was published on 2023-08-31 and the
+last upstream commit landed on 2024-03-03. Since then CVE-2025-69872
+(`GHSA-w8v5-vhqr-4h9v`_) was published against every released version: the
+cache reads pickled values from its directory with ``pickle.load``, so anyone
+who can write into the cache directory can run code in the process that reads
+from it. The package still installs and works, but dependency scanners flag it
+and no fixed upstream version exists. This fork publishes the same library as
+``diskcache-community`` and carries the fix in two steps: 5.7.0 stays
+compatible with 5.6.3 caches and adds an opt-in ``SafeDisk``; 6.0.0 makes safe
+reading the default. No release has been published yet; ``SECURITY.md`` in the
+repository describes the current state.
+
+What stays the same:
+
+- the import name, ``import diskcache``, and the public API
+- the ``cache.db`` schema, the file layout and the serialization modes, so a
+  5.6.3 process opens a directory written by this fork and the reverse
+- the ``JSONDisk`` bytes, the memoize key format and the persisted settings
+
+Migrating from ``diskcache``: both distributions install into the same
+``diskcache/`` package directory, so they cannot be installed side by side.
+Uninstall the upstream package first, and never keep both, because
+uninstalling either one deletes the shared package::
+
+  $ pip uninstall diskcache
+  $ pip install diskcache-community
+
+If ``diskcache`` arrives through a dependency, tell the resolver to drop it.
+With uv, add this to ``pyproject.toml``::
+
+  [tool.uv]
+  exclude-dependencies = ["diskcache"]
+
+With pip, install the dependent with ``--no-deps`` and list the rest of its
+requirements yourself, or exclude ``diskcache`` through a constraints file.
+End users of transitive dependents cannot switch with pip alone and should ask
+the dependent project to switch.
+
+DiskCache was written and maintained by Grant Jenks from 2016 to 2023. This
+fork keeps his license, copyright and author credit; see ``NOTICE`` in the
+repository.
+
+.. _`diskcache-community`: https://github.com/secondwindoss/diskcache-community
+.. _`python-diskcache`: https://github.com/grantjenks/python-diskcache
+.. _`Grant Jenks`: https://github.com/grantjenks
+.. _`GHSA-w8v5-vhqr-4h9v`: https://github.com/advisories/GHSA-w8v5-vhqr-4h9v
+
 Testimonials
 ------------
 
@@ -58,11 +113,11 @@ Testimonials
     able to speed up some Ansible runs by almost 3 times. DiskCache is saving
     us a ton of time."
 
-Does your company or website use `DiskCache`_? Send us a `message
-<contact@grantjenks.com>`_ and let us know.
+Does your company or website use `DiskCache`_? Let us know in `Discussions`_.
 
 .. _`Daren Hasenkamp`: https://www.linkedin.com/in/daren-hasenkamp-93006438/
 .. _`Mathias Petermann`: https://www.linkedin.com/in/mathias-petermann-a8aa273b/
+.. _`Discussions`: https://github.com/secondwindoss/diskcache-community/discussions
 
 Features
 --------
@@ -77,23 +132,18 @@ Features
 - Thread-safe and process-safe
 - Supports multiple eviction policies (LRU and LFU included)
 - Keys support "tag" metadata and eviction
-- Developed on Python 3.10
-- Tested on CPython 3.6, 3.7, 3.8, 3.9, 3.10
-- Tested on Linux, Mac OS X, and Windows
-- Tested using GitHub Actions
+- Tested on CPython 3.10, 3.11, 3.12, 3.13 and 3.14
+- Tested on Linux, macOS and Windows with GitHub Actions
 
-.. image:: https://github.com/grantjenks/python-diskcache/workflows/integration/badge.svg
-   :target: https://github.com/grantjenks/python-diskcache/actions?query=workflow%3Aintegration
-
-.. image:: https://github.com/grantjenks/python-diskcache/workflows/release/badge.svg
-   :target: https://github.com/grantjenks/python-diskcache/actions?query=workflow%3Arelease
+.. image:: https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml
 
 Quickstart
 ----------
 
 Installing `DiskCache`_ is simple with `pip <http://www.pip-installer.org/>`_::
 
-  $ pip install diskcache
+  $ pip install diskcache-community
 
 You can access documentation in the interpreter with Python's built-in help
 function::
@@ -131,13 +181,13 @@ prevention, cross-process locking, and cross-process throttling are available::
 Python's docstrings are a quick way to get started but not intended as a
 replacement for the `DiskCache Tutorial`_ and `DiskCache API Reference`_.
 
-.. _`Cache`: http://www.grantjenks.com/docs/diskcache/tutorial.html#cache
-.. _`FanoutCache`: http://www.grantjenks.com/docs/diskcache/tutorial.html#fanoutcache
-.. _`DjangoCache`: http://www.grantjenks.com/docs/diskcache/tutorial.html#djangocache
+.. _`Cache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#cache
+.. _`FanoutCache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#fanoutcache
+.. _`DjangoCache`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#djangocache
 .. _`Django`: https://www.djangoproject.com/
-.. _`Deque`: http://www.grantjenks.com/docs/diskcache/tutorial.html#deque
-.. _`Index`: http://www.grantjenks.com/docs/diskcache/tutorial.html#index
-.. _`recipes`: http://www.grantjenks.com/docs/diskcache/tutorial.html#recipes
+.. _`Deque`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#deque
+.. _`Index`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#index
+.. _`recipes`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst#recipes
 
 User Guide
 ----------
@@ -154,14 +204,14 @@ tutorial, benchmarks, API, and development.
 * `DiskCache API Reference`_
 * `DiskCache Development`_
 
-.. _`DiskCache Tutorial`: http://www.grantjenks.com/docs/diskcache/tutorial.html
-.. _`DiskCache Cache Benchmarks`: http://www.grantjenks.com/docs/diskcache/cache-benchmarks.html
-.. _`DiskCache DjangoCache Benchmarks`: http://www.grantjenks.com/docs/diskcache/djangocache-benchmarks.html
-.. _`Talk: All Things Cached - SF Python 2017 Meetup`: http://www.grantjenks.com/docs/diskcache/sf-python-2017-meetup-talk.html
-.. _`Case Study: Web Crawler`: http://www.grantjenks.com/docs/diskcache/case-study-web-crawler.html
-.. _`Case Study: Landing Page Caching`: http://www.grantjenks.com/docs/diskcache/case-study-landing-page-caching.html
-.. _`DiskCache API Reference`: http://www.grantjenks.com/docs/diskcache/api.html
-.. _`DiskCache Development`: http://www.grantjenks.com/docs/diskcache/development.html
+.. _`DiskCache Tutorial`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/tutorial.rst
+.. _`DiskCache Cache Benchmarks`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/cache-benchmarks.rst
+.. _`DiskCache DjangoCache Benchmarks`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/djangocache-benchmarks.rst
+.. _`Talk: All Things Cached - SF Python 2017 Meetup`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/sf-python-2017-meetup-talk.rst
+.. _`Case Study: Web Crawler`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/case-study-web-crawler.rst
+.. _`Case Study: Landing Page Caching`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/case-study-landing-page-caching.rst
+.. _`DiskCache API Reference`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/api.rst
+.. _`DiskCache Development`: https://github.com/secondwindoss/diskcache-community/blob/master/docs/development.rst
 
 Comparisons
 -----------
@@ -273,7 +323,7 @@ Data Structures
 
 .. _`dict`: https://docs.python.org/3/library/stdtypes.html#typesmapping
 .. _`pandas`: https://pandas.pydata.org/
-.. _`Sorted Containers`: http://www.grantjenks.com/docs/sortedcontainers/
+.. _`Sorted Containers`: https://pypi.org/project/sortedcontainers/
 
 Pure-Python Databases
 .....................
@@ -379,15 +429,18 @@ Reference
 * `DiskCache at GitHub`_
 * `DiskCache Issue Tracker`_
 
-.. _`DiskCache Documentation`: http://www.grantjenks.com/docs/diskcache/
-.. _`DiskCache at PyPI`: https://pypi.python.org/pypi/diskcache/
-.. _`DiskCache at GitHub`: https://github.com/grantjenks/python-diskcache/
-.. _`DiskCache Issue Tracker`: https://github.com/grantjenks/python-diskcache/issues/
+.. _`DiskCache Documentation`: https://github.com/secondwindoss/diskcache-community/tree/master/docs
+.. _`DiskCache at PyPI`: https://pypi.org/project/diskcache-community/
+.. _`DiskCache at GitHub`: https://github.com/secondwindoss/diskcache-community/
+.. _`DiskCache Issue Tracker`: https://github.com/secondwindoss/diskcache-community/issues/
 
 License
 -------
 
 Copyright 2016-2023 Grant Jenks
+
+Modifications in this fork are copyright 2026 diskcache-community contributors
+and are distributed under the same license.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 this file except in compliance with the License.  You may obtain a copy of the
@@ -400,4 +453,4 @@ under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 
-.. _`DiskCache`: http://www.grantjenks.com/docs/diskcache/
+.. _`DiskCache`: https://github.com/secondwindoss/diskcache-community
