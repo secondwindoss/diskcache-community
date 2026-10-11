@@ -36,6 +36,10 @@ class FanoutCache:
         :param disk: `Disk` instance for serialization
         :param settings: any of `DEFAULT_SETTINGS`
 
+        The cache directory, the shard directories and the directories of
+        sub-caches, deques and indexes are created with mode ``0o700`` like
+        :class:`Cache` directories; existing directories keep their mode.
+
         """
         if directory is None:
             directory = tempfile.mkdtemp(prefix='diskcache-')

@@ -9,6 +9,7 @@ import pathlib
 import pickle
 import shutil
 import sqlite3
+import stat
 import subprocess as sp
 import tempfile
 import threading
@@ -133,11 +134,11 @@ def test_custom_filename_disk():
 def test_init_makedirs():
     cache_dir = tempfile.mkdtemp()
     shutil.rmtree(cache_dir)
-    makedirs = mock.Mock(side_effect=OSError(errno.EACCES))
+    mkdir = mock.Mock(side_effect=OSError(errno.EACCES))
 
     with pytest.raises(EnvironmentError):
         try:
-            with mock.patch('os.makedirs', makedirs):
+            with mock.patch('os.mkdir', mkdir):
                 dc.Cache(cache_dir)
         except EnvironmentError:
             shutil.rmtree(cache_dir, ignore_errors=True)
@@ -1598,3 +1599,53 @@ def test_foreign_separator_remove(cache):
     cache.clear()
     assert value_files(cache) == []
     assert cache.check() == []
+
+
+def directory_modes(root):
+    return {
+        op.join(dirpath, name): stat.S_IMODE(
+            os.stat(op.join(dirpath, name)).st_mode
+        )
+        for dirpath, dirnames, _ in os.walk(root)
+        for name in dirnames
+    }
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permission bits')
+def test_private_directories():
+    umask = os.umask(0)
+    root = tempfile.mkdtemp()
+
+    try:
+        directory = op.join(root, 'parent', 'cache')
+
+        with dc.Cache(directory) as cache:
+            cache[0] = b'x' * 2**16  # Stored in a file under ab/cd/.
+
+        modes = directory_modes(root)
+        # The parent, the cache directory and the two levels of value
+        # subdirectories were all created by the cache.
+        assert len(modes) == 4
+        assert op.join(root, 'parent') in modes
+        assert directory in modes
+        assert all(mode == 0o700 for mode in modes.values()), modes
+    finally:
+        os.umask(umask)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permission bits')
+def test_existing_directory_keeps_mode():
+    umask = os.umask(0)
+    directory = tempfile.mkdtemp()
+
+    try:
+        os.chmod(directory, 0o755)
+
+        with dc.Cache(directory) as cache:
+            cache[0] = 0
+
+        assert stat.S_IMODE(os.stat(directory).st_mode) == 0o755
+    finally:
+        os.umask(umask)
+        shutil.rmtree(directory, ignore_errors=True)

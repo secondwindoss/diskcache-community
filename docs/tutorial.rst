@@ -71,11 +71,15 @@ Python mapping interface with additional cache and performance parameters.
     >>> cache = Cache()
 
 Initialization expects a directory path reference. If the directory path does
-not exist, it will be created. When not specified, a temporary directory is
-automatically created. Additional keyword parameters are discussed below. Cache
-objects are thread-safe and may be shared between threads. Two Cache objects
-may also reference the same directory from separate threads or processes. In
-this way, they are also process-safe and support cross-process communication.
+not exist, it will be created. Every directory the cache creates, the cache
+directory itself, missing parents and the subdirectories that hold large
+values, gets mode ``0o700`` so that only the owner can read it; a directory
+that already exists keeps its permissions, and Windows ignores the mode bits.
+When not specified, a temporary directory is automatically created. Additional
+keyword parameters are discussed below. Cache objects are thread-safe and may
+be shared between threads. Two Cache objects may also reference the same
+directory from separate threads or processes. In this way, they are also
+process-safe and support cross-process communication.
 
 Cache objects open and maintain one or more file handles. But unlike files, all
 Cache operations are atomic and Cache objects support process-forking and may
