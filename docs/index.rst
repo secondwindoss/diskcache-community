@@ -25,6 +25,7 @@ Start with the :doc:`tutorial` and keep the :doc:`api` at hand.
 
 .. toctree::
    :maxdepth: 1
+   :titlesonly:
 
    tutorial
    cache-benchmarks

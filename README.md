@@ -1,12 +1,30 @@
-# DiskCache
+<br />
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/docs/_static/logo-dark.png">
+    <img alt="diskcache" src="https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/docs/_static/logo-light.png" width="40%">
+  </picture>
+</p>
 
-**Disk and file backed persistent cache for Python, built on SQLite. Pure Python, thread-safe, process-safe, with a Django backend.**
+<h1 align="center">diskcache-community</h1>
 
-[![PyPI](https://img.shields.io/pypi/v/diskcache-community.svg)](https://pypi.org/project/diskcache-community/)
-[![Python versions](https://img.shields.io/pypi/pyversions/diskcache-community.svg)](https://pypi.org/project/diskcache-community/)
-[![CI](https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml/badge.svg)](https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml)
-[![Documentation](https://app.readthedocs.org/projects/diskcache-community/badge/?version=latest)](https://diskcache-community.readthedocs.io/en/latest/)
-[![License](https://img.shields.io/pypi/l/diskcache-community.svg)](https://github.com/secondwindoss/diskcache-community/blob/master/LICENSE)
+<h2><p align="center">Disk and file backed persistent cache for Python, built on SQLite</p></h2>
+
+<h4><p align="center">
+<a href="https://diskcache-community.readthedocs.io/en/latest/tutorial.html">[Tutorial]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/api.html">[API]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/">[Docs]</a>
+- <a href="https://github.com/secondwindoss/diskcache-community/blob/master/CHANGELOG.md">[Changelog]</a>
+</p></h4>
+
+<p align="center">
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/diskcache-community"></a>
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/diskcache-community"></a>
+  <a href="https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://diskcache-community.readthedocs.io/en/latest/"><img alt="Documentation" src="https://app.readthedocs.org/projects/diskcache-community/badge/?version=latest"></a>
+  <a href="https://github.com/secondwindoss/diskcache-community/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-green.svg"></a>
+</p>
+<br />
 
 > [!IMPORTANT]
 > This is a community fork of [python-diskcache](https://github.com/grantjenks/python-diskcache),
