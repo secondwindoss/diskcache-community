@@ -34,6 +34,13 @@ def _schema_names(cache, kind):
     return {name for (name,) in rows if not name.startswith('sqlite_')}
 
 
+def _shards(cache):
+    """Return the Cache objects behind `cache`, a Cache or a FanoutCache."""
+    if isinstance(cache, diskcache.FanoutCache):
+        return cache._shards
+    return (cache,)
+
+
 def check_clean(cache):
     """Assert Cache.check() finds nothing wrong with `cache`.
 
@@ -47,10 +54,14 @@ def check_clean(cache):
     if os.sep == '/':
         assert warns == [], [str(w.message) for w in warns]
         return
-    rows = cache._sql(
-        'SELECT filename FROM Cache WHERE filename IS NOT NULL'
-    ).fetchall()
-    known = {op.normpath(op.join(cache.directory, name)) for (name,) in rows}
+    known = set()
+    for shard in _shards(cache):
+        rows = shard._sql(
+            'SELECT filename FROM Cache WHERE filename IS NOT NULL'
+        ).fetchall()
+        known.update(
+            op.normpath(op.join(shard.directory, name)) for (name,) in rows
+        )
     prefix = 'unknown file: '
     for warning in warns:
         message = str(warning.message)
