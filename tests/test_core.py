@@ -1038,6 +1038,84 @@ def test_iterkeys(cache):
     assert list(cache.iterkeys()) == []
 
 
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('tag', [None, '', b'', 0, False, 1.5, 'counter'])
+def test_iterkeys_tag(cache, reverse, tag):
+    assert list(cache.iterkeys(reverse=reverse, tag=tag)) == []
+    cache.set('a', 1, tag=tag)
+    cache.set('b', 2, tag='other')
+    cache.set('c', 3, tag=tag)
+    cache.set('d', 4)
+
+    expected = ['a', 'c', 'd'] if tag is None else ['a', 'c']
+    assert list(cache.iterkeys(reverse=reverse, tag=tag)) == (
+        expected[::-1] if reverse else expected
+    )
+    assert list(cache.iterkeys(reverse=reverse, tag='missing')) == []
+    assert list(cache.iterkeys(reverse)) == (
+        ['d', 'c', 'b', 'a'] if reverse else ['a', 'b', 'c', 'd']
+    )
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('tag_index', [False, True])
+def test_iterkeys_tag_pagination(cache, reverse, tag_index):
+    if tag_index:
+        cache.create_tag_index()
+
+    expected = []
+    for convert in (
+        int,
+        lambda num: 'key-%03d' % num,
+        lambda num: bytes([num]),
+    ):
+        for num in range(240):
+            key = convert(num)
+            tag = 'counter' if num % 2 else 'other'
+            cache.set(key, None, tag=tag)
+            if num % 2:
+                expected.append(key)
+
+    assert list(cache.iterkeys(reverse=reverse, tag='counter')) == (
+        expected[::-1] if reverse else expected
+    )
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_iterkeys_tag_raw_collision(cache, reverse):
+    pairs = []
+    for num in range(105):
+        key = (num,)
+        raw_key = bytes(cache.disk.put(key)[0])
+        cache.set(key, None, tag='counter')
+        cache.set(raw_key, None, tag='counter' if num % 2 else 'other')
+        pairs.append((raw_key, key, num % 2))
+
+    expected = []
+    for raw_key, key, matching in sorted(pairs):
+        expected.append(key)
+        if matching:
+            expected.append(raw_key)
+
+    assert list(cache.iterkeys(reverse=reverse, tag='counter')) == (
+        expected[::-1] if reverse else expected
+    )
+
+
+def test_iterkeys_tag_does_not_fetch_values(cache):
+    cache.set('key', {'value': 1}, tag='counter')
+    with mock.patch.object(cache.disk, 'fetch') as fetch:
+        assert list(cache.iterkeys(tag='counter')) == ['key']
+    fetch.assert_not_called()
+
+
+def test_iterkeys_tag_includes_expired(cache):
+    cache.reset('cull_limit', 0)
+    cache.set('expired', 1, tag='counter', expire=-1)
+    cache.set('live', 2, tag='counter')
+    assert list(cache.iterkeys(tag='counter')) == ['expired', 'live']
+
+
 def test_pickle(cache):
     for num, val in enumerate('abcde'):
         cache[val] = num
@@ -2084,3 +2162,53 @@ def test_fork_waits_for_transactions_in_other_threads(cache):
     os.close(read_fd)
     assert cache.get('held') == 1
     assert cache.get('child') == 2
+
+
+@pytest.mark.parametrize('statistics', [False, True])
+def test_get_store_time(cache, statistics):
+    if statistics:
+        cache.stats(enable=True)  # Take the transactional path in get.
+
+    before = time.time()
+    cache.set(0, 0, tag='number')
+    after = time.time()
+
+    value, store_time = cache.get(0, store_time=True)
+    assert value == 0
+    assert isinstance(store_time, float)
+    assert before <= store_time <= after
+    assert cache.get(0, store_time=True) == (0, store_time)
+    assert cache.get(0, expire_time=True, store_time=True) == (
+        0,
+        None,
+        store_time,
+    )
+    assert cache.get(0, tag=True, store_time=True) == (0, 'number', store_time)
+    assert cache.get(0, expire_time=True, tag=True, store_time=True) == (
+        0,
+        None,
+        'number',
+        store_time,
+    )
+    assert cache.get(0, expire_time=True, tag=True) == (0, None, 'number')
+    assert cache.get(0) == 0
+
+    assert cache.get(1, store_time=True) == (None, None)
+    assert cache.get(1, default=7, tag=True, store_time=True) == (
+        7,
+        None,
+        None,
+    )
+    assert cache.get(1, expire_time=True, tag=True, store_time=True) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def test_get_store_time_read(cache):
+    cache.set('key', io.BytesIO(b'value'), read=True)
+    reader, store_time = cache.get('key', read=True, store_time=True)
+    assert reader.read() == b'value'
+    assert isinstance(store_time, float)

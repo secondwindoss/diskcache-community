@@ -145,7 +145,13 @@ file-like object, and tag metadata is stored with the key. Another method,
 
 The return value is a tuple containing the value, expire time (seconds from
 epoch), and tag. Because we passed ``read=True`` the value is returned as a
-file-like object.
+file-like object. A fourth keyword parameter, `store_time`, appends the time
+the item was stored (seconds from epoch) as the last element of the tuple, so
+the age of a cached item can be logged when it is used.
+
+    >>> value, store_time = cache.get('key', store_time=True)
+    >>> type(store_time).__name__
+    'float'
 
 Use :meth:`touch <.Cache.touch>` to update the expiration time of an item in
 the cache.
@@ -326,6 +332,20 @@ keys will be serialized which is likely to have a meaningless sorted order.
     ('b', None)
     >>> cache.peekitem(last=False)
     ('c', None)
+
+To iterate keys with a matching tag, pass `tag` to :meth:`iterkeys
+<.Cache.iterkeys>`. Filtering happens in the database without reading cached
+values. Omitting `tag` includes all keys; ``tag=None`` selects untagged keys.
+As with other iteration methods, expired items are included.
+
+    >>> _ = cache.set('a', None, tag='letter')
+    >>> _ = cache.set('c', None, tag='letter')
+    >>> list(cache.iterkeys(tag='letter'))
+    ['a', 'c']
+    >>> list(cache.iterkeys(reverse=True, tag='letter'))
+    ['c', 'a']
+    >>> list(cache.iterkeys(tag=None))
+    ['b']
 
 If only the first or last item in insertion order is desired then
 :meth:`peekitem <.Cache.peekitem>` is more efficient than using iteration.
