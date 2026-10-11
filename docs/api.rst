@@ -150,3 +150,10 @@ Timeout
 -------
 
 .. autoexception:: diskcache.Timeout
+
+ReadOnlyError
+-------------
+
+Read the :ref:`read-only tutorial <tutorial-read-only>` for details.
+
+.. autoexception:: diskcache.ReadOnlyError

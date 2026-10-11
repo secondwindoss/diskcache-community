@@ -14,6 +14,7 @@ import io
 import json
 import os
 import os.path as op
+import pathlib
 import pickle
 import pickletools
 import sqlite3
@@ -737,6 +738,30 @@ class Timeout(Exception):
     """Database timeout expired."""
 
 
+class ReadOnlyError(sqlite3.OperationalError):  # pylint: disable=R0903
+    """Write attempted on a read-only cache.
+
+    Raised by every method that would modify a cache opened read-only, either
+    explicitly with ``Cache(directory, read_only=True)`` or because the cache
+    database or its directory is not writable. A subclass of
+    :exc:`sqlite3.OperationalError`, the error SQLite itself raises for
+    writes to a read-only database, so existing handlers keep working.
+    """
+
+
+# Pragmas that are stored in the database file rather than set per
+# connection; a read-only cache leaves them as the file has them.
+_PERSISTENT_PRAGMAS = frozenset({'auto_vacuum', 'journal_mode'})
+
+# SQL condition selecting rows that have not expired, evaluated by SQLite
+# itself so it can be embedded in a statement without a parameter. Used by
+# read-only caches, which cannot delete expired rows while reading.
+_LIVE_CONDITION = (
+    '(expire_time IS NULL'
+    " OR expire_time > (julianday('now') - 2440587.5) * 86400.0)"
+)
+
+
 class UnknownFileWarning(UserWarning):
     """Warning used by Cache.check for unknown files."""
 
@@ -1022,18 +1047,35 @@ if hasattr(os, 'register_at_fork'):
 class Cache:
     """Disk and file backed cache."""
 
-    def __init__(self, directory=None, timeout=60, disk=Disk, **settings):
+    def __init__(
+        self,
+        directory=None,
+        timeout=60,
+        disk=Disk,
+        *,
+        read_only=False,
+        **settings
+    ):
         """Initialize cache instance.
 
         :param str directory: cache directory
         :param float timeout: SQLite connection timeout
         :param disk: Disk type or subclass for serialization
+        :param bool read_only: open the cache read-only (default False)
         :param settings: any of DEFAULT_SETTINGS
 
         The cache directory, any missing parents and the subdirectories that
         hold large values are created with mode ``0o700``, so only the owner
         can read them. A directory that already exists keeps its mode; the
         cache never changes permissions. Windows ignores the mode bits.
+
+        Opening an existing cache writes nothing unless a setting differs
+        from the stored one. A cache whose database file or directory is not
+        writable opens read-only, as does a cache opened with `read_only`;
+        reads work and every method that would write raises
+        :exc:`ReadOnlyError`. The read-only state is not persisted and
+        `read_only` is not a setting. See the :ref:`tutorial
+        <tutorial-read-only>` for details.
 
         """
         try:
@@ -1056,6 +1098,8 @@ class Cache:
         finalizer = weakref.finalize(self, self._cons.close_all)
         finalizer.atexit = False
 
+        self._read_only = self._resolve_read_only(directory, read_only)
+
         if not op.isdir(directory):
             try:
                 _makedirs_private(op.abspath(directory))
@@ -1076,6 +1120,10 @@ class Cache:
                 sql('SELECT key, value FROM Settings').fetchall()
             )
         except sqlite3.OperationalError:
+            if self._read_only:
+                raise ReadOnlyError(
+                    'read-only cache in %r has no Settings table' % directory
+                ) from None
             current_settings = {}
 
         sets = DEFAULT_SETTINGS.copy()
@@ -1091,11 +1139,12 @@ class Cache:
             if key.startswith('sqlite_'):
                 self.reset(key, value, update=False)
 
-        sql(
-            'CREATE TABLE IF NOT EXISTS Settings ('
-            ' key TEXT NOT NULL UNIQUE,'
-            ' value)'
-        )
+        if not self._read_only:
+            sql(
+                'CREATE TABLE IF NOT EXISTS Settings ('
+                ' key TEXT NOT NULL UNIQUE,'
+                ' value)'
+            )
 
         # Setup Disk object (must happen after settings initialized).
 
@@ -1106,21 +1155,67 @@ class Cache:
         }
         self._disk = disk(directory, **kwargs)
 
-        # Set cached attributes: updates settings and sets pragmas.
-
-        for key, value in sets.items():
-            query = 'INSERT OR REPLACE INTO Settings VALUES (?, ?)'
-            sql(query, (key, value))
-            self.reset(key, value)
-
-        for key, value in METADATA.items():
-            query = 'INSERT OR IGNORE INTO Settings VALUES (?, ?)'
-            sql(query, (key, value))
-            self.reset(key)
+        self._init_settings(sql, sets, current_settings)
 
         ((self._page_size,),) = sql('PRAGMA page_size').fetchall()
 
-        # Setup Cache table.
+        if self._read_only:
+            # The schema, triggers and tag index are whatever the writer
+            # left; reads need none of them to change.
+            self.close()
+            self._timeout = timeout
+            self._sql  # pylint: disable=pointless-statement
+            return
+
+        self._init_schema(sql)
+
+        # Close and re-open database connection with given timeout.
+
+        self.close()
+        self._timeout = timeout
+        self._sql  # pylint: disable=pointless-statement
+
+    @staticmethod
+    def _resolve_read_only(directory, read_only):
+        # A database that exists but cannot be written, or whose directory
+        # cannot be written, is opened read-only. Opening read-only on
+        # purpose needs an existing database, since nothing is created.
+        db_path = op.join(directory, DBNAME)
+        db_exists = op.isfile(db_path)
+
+        if read_only and not db_exists:
+            raise ReadOnlyError(
+                'no cache database to open read-only in %r' % directory
+            )
+
+        writable = os.access(directory, os.W_OK) and os.access(
+            db_path, os.W_OK
+        )
+        return bool(read_only) or (db_exists and not writable)
+
+    def _init_settings(self, sql, sets, current_settings):
+        # Set cached attributes: updates settings and sets pragmas. Only a
+        # setting that is missing or differs from the stored value is
+        # written, so opening an existing cache leaves the database alone.
+
+        for key, value in sets.items():
+            if (
+                not self._read_only
+                and current_settings.get(key, ENOVAL) != value
+            ):
+                query = 'INSERT OR REPLACE INTO Settings VALUES (?, ?)'
+                sql(query, (key, value))
+            self.reset(key, value, update=False)
+
+        for key, value in METADATA.items():
+            if key not in current_settings and not self._read_only:
+                query = 'INSERT OR IGNORE INTO Settings VALUES (?, ?)'
+                sql(query, (key, value))
+            self.reset(key)
+
+    def _init_schema(self, sql):
+        # Create the Cache table, its indexes and the triggers when they are
+        # missing. Every statement is a no-op on an existing database.
 
         sql(
             'CREATE TABLE IF NOT EXISTS Cache ('
@@ -1160,18 +1255,18 @@ class Cache:
 
         self._update_triggers(sql)
 
-        # Create tag index if requested.
+        # Create or drop the tag index only when the database disagrees
+        # with the setting, so a reopen does not write.
 
-        if self.tag_index:  # pylint: disable=no-member
+        ((has_tag_index,),) = sql(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'"
+            " AND name = 'Cache_tag_rowid'"
+        ).fetchall()
+
+        if self.tag_index and not has_tag_index:  # pylint: disable=no-member
             self.create_tag_index()
-        else:
+        elif has_tag_index and not self.tag_index:  # pylint: disable=no-member
             self.drop_tag_index()
-
-        # Close and re-open database connection with given timeout.
-
-        self.close()
-        self._timeout = timeout
-        self._sql  # pylint: disable=pointless-statement
 
     @property
     def directory(self):
@@ -1187,6 +1282,15 @@ class Cache:
     def disk(self):
         """Disk used for serialization."""
         return self._disk
+
+    @property
+    def read_only(self):
+        """True when the cache was opened read-only."""
+        return self._read_only
+
+    def _check_writable(self):
+        if self._read_only:
+            raise ReadOnlyError('cache in %r is read-only' % self._directory)
 
     @property
     def _con(self):
@@ -1211,11 +1315,23 @@ class Cache:
         # it, once that thread has exited. Each connection is still used by
         # one thread at a time, which is all SQLite's multi-thread mode asks.
 
+        path = op.join(self._directory, DBNAME)
+
+        if self._read_only:
+            # mode=ro refuses writes at the SQLite level. A reader of a WAL
+            # database needs to create the -shm file next to it, so when the
+            # directory is not writable immutable=1 skips that file and all
+            # locking, which is safe only because nothing can write there.
+            path = pathlib.Path(op.abspath(path)).as_uri() + '?mode=ro'
+            if not os.access(self._directory, os.W_OK):
+                path += '&immutable=1'
+
         con = sqlite3.connect(
-            op.join(self._directory, DBNAME),
+            path,
             timeout=self._timeout,
             isolation_level=None,
             check_same_thread=False,
+            uri=self._read_only,
         )
         sentinel = _ThreadSentinel()
         stale = self._cons.add(threading.get_ident(), sentinel, con)
@@ -1377,9 +1493,15 @@ class Cache:
             if tid == txn_id:
                 begin = False
             else:
+                # A read-only cache cannot take the reserved lock that
+                # BEGIN IMMEDIATE asks for; its transactions only read.
+                begin_statement = (
+                    'BEGIN' if self._read_only else 'BEGIN IMMEDIATE'
+                )
+
                 while True:
                     try:
-                        sql('BEGIN IMMEDIATE')
+                        sql(begin_statement)
                         begin = True
                         self._txn_id = tid
                         break
@@ -1392,11 +1514,19 @@ class Cache:
 
             try:
                 yield sql, filenames.append
-            except BaseException:
+            except BaseException as error:
                 if begin:
                     assert self._txn_id == tid
                     self._txn_id = None
                     sql('ROLLBACK')
+                if (
+                    self._read_only
+                    and isinstance(error, sqlite3.OperationalError)
+                    and 'readonly' in str(error)
+                ):
+                    raise ReadOnlyError(
+                        'cache in %r is read-only' % self._directory
+                    ) from error
                 raise
             else:
                 if begin:
@@ -1427,6 +1557,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         now = time.time()
         db_key, raw = self._disk.put(key)
         expire_time = None if expire is None else now + expire
@@ -1599,6 +1730,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         now = time.time()
         db_key, raw = self._disk.put(key)
         expire_time = None if expire is None else now + expire
@@ -1647,6 +1779,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         now = time.time()
         db_key, raw = self._disk.put(key)
         expire_time = None if expire is None else now + expire
@@ -1701,6 +1834,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         now = time.time()
         db_key, raw = self._disk.put(key)
         select = (
@@ -1817,6 +1951,13 @@ class Cache:
         """
         db_key, raw = self._disk.put(key)
         update_column = EVICTION_POLICY[self.eviction_policy]['get']
+        statistics = self.statistics
+
+        if self._read_only:
+            # Hits, misses and access times cannot be recorded, so take
+            # the path that does not write.
+            update_column = None
+            statistics = False
         select = (
             'SELECT rowid, expire_time, tag, mode, filename, value, store_time'
             ' FROM Cache WHERE key = ? AND raw = ?'
@@ -1825,7 +1966,7 @@ class Cache:
 
         default = _meta_result(default, expire_time, tag, store_time)
 
-        if not self.statistics and update_column is None:
+        if not statistics and update_column is None:
             # Fast path, no transaction necessary.
 
             rows = self._sql(select, (db_key, raw, time.time())).fetchall()
@@ -1863,7 +2004,7 @@ class Cache:
                 rows = sql(select, (db_key, raw, time.time())).fetchall()
 
                 if not rows:
-                    if self.statistics:
+                    if statistics:
                         sql(cache_miss)
                     return default
 
@@ -1883,11 +2024,11 @@ class Cache:
                     value = self._disk.fetch(mode, filename, db_value, read)
                 except IOError:
                     # Key was deleted before we could retrieve result.
-                    if self.statistics:
+                    if statistics:
                         sql(cache_miss)
                     return default
 
-                if self.statistics:
+                if statistics:
                     sql(cache_hit)
 
                 now = time.time()
@@ -1971,6 +2112,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         db_key, raw = self._disk.put(key)
         select = (
             'SELECT rowid, expire_time, tag, mode, filename, value'
@@ -2023,6 +2165,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         db_key, raw = self._disk.put(key)
 
         with self._transact(retry) as (sql, cleanup):
@@ -2114,6 +2257,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         if prefix is None:
             min_key = 0
             max_key = 999999999999999
@@ -2223,6 +2367,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         # Caution: Nearly identical code exists in Cache.peek
         if prefix is None:
             min_key = 0
@@ -2347,11 +2492,12 @@ class Cache:
             max_key = prefix + '-999999999999999'
 
         order = {'front': 'ASC', 'back': 'DESC'}
+        live = ' AND ' + _LIVE_CONDITION if self._read_only else ''
         select = (
             'SELECT rowid, key, expire_time, tag, mode, filename, value'
-            ' FROM Cache WHERE ? < key AND key < ? AND raw = 1'
+            ' FROM Cache WHERE ? < key AND key < ? AND raw = 1%s'
             ' ORDER BY key %s LIMIT 1'
-        ) % order[side]
+        ) % (live, order[side])
 
         if expire_time and tag:
             default = default, None, None
@@ -2370,7 +2516,9 @@ class Cache:
                         (rowid, key, db_expire, db_tag, mode, name, db_value),
                     ) = rows
 
-                    if db_expire is not None and db_expire < time.time():
+                    expired = db_expire is not None and db_expire < time.time()
+
+                    if expired and not self._read_only:
                         sql('DELETE FROM Cache WHERE rowid = ?', (rowid,))
                         cleanup(name)
                     else:
@@ -2420,10 +2568,11 @@ class Cache:
 
         """
         order = ('ASC', 'DESC')
+        live = ' WHERE ' + _LIVE_CONDITION if self._read_only else ''
         select = (
             'SELECT rowid, key, raw, expire_time, tag, mode, filename, value'
-            ' FROM Cache ORDER BY rowid %s LIMIT 1'
-        ) % order[last]
+            ' FROM Cache%s ORDER BY rowid %s LIMIT 1'
+        ) % (live, order[last])
 
         while True:
             while True:
@@ -2446,7 +2595,9 @@ class Cache:
                         ),
                     ) = rows
 
-                    if db_expire is not None and db_expire < time.time():
+                    expired = db_expire is not None and db_expire < time.time()
+
+                    if expired and not self._read_only:
                         sql('DELETE FROM Cache WHERE rowid = ?', (rowid,))
                         cleanup(name)
                     else:
@@ -2588,6 +2739,8 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        if fix:
+            self._check_writable()
         # pylint: disable=access-member-before-definition,W0201
         with warnings.catch_warnings(record=True) as warns:
             sql = self._sql
@@ -2710,6 +2863,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         sql = self._sql
         sql(
             'CREATE INDEX IF NOT EXISTS Cache_tag_rowid ON Cache(tag, rowid) '
@@ -2723,6 +2877,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         sql = self._sql
         sql('DROP INDEX IF EXISTS Cache_tag_rowid')
         self.reset('tag_index', 0)
@@ -2746,6 +2901,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         select = (
             'SELECT rowid, filename FROM Cache'
             ' WHERE tag = ? AND rowid > ?'
@@ -2773,6 +2929,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         select = (
             'SELECT rowid, expire_time, filename FROM Cache'
             ' WHERE ? < expire_time AND expire_time < ?'
@@ -2799,6 +2956,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         now = time.time()
 
         # Remove expired items.
@@ -2854,6 +3012,7 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        self._check_writable()
         select = (
             'SELECT rowid, filename FROM Cache'
             ' WHERE rowid > ?'
@@ -3005,6 +3164,10 @@ class Cache:
         # pylint: disable=E0203,W0201
         result = (self.reset('hits'), self.reset('misses'))
 
+        if self._read_only:
+            # Counters cannot be reset or enabled on a read-only cache.
+            return result
+
         if reset:
             self.reset('hits', 0)
             self.reset('misses', 0)
@@ -3103,16 +3266,26 @@ class Cache:
 
         if value is ENOVAL:
             select = 'SELECT value FROM Settings WHERE key = ?'
-            ((value,),) = sql_retry(select, (key,)).fetchall()
+            rows = sql_retry(select, (key,)).fetchall()
+            if not rows and self._read_only and key in METADATA:
+                value = METADATA[key]  # A snapshot without counters.
+            else:
+                ((value,),) = rows
             setattr(self, key, value)
             return value
 
         if update:
+            self._check_writable()
             statement = 'UPDATE Settings SET value = ? WHERE key = ?'
             sql_retry(statement, (value, key))
 
         if key.startswith('sqlite_'):
             pragma = key[7:]
+
+            if self._read_only and pragma in _PERSISTENT_PRAGMAS:
+                # Stored in the file; a read-only cache takes what is there.
+                setattr(self, key, value)
+                return value
 
             # 2016-02-17 GrantJ - PRAGMA and isolation_level=None
             # don't always play nicely together. Retry setting the
