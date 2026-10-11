@@ -33,17 +33,17 @@ Get the Code
 :doc:`DiskCache <index>` is actively developed on GitHub, where the code is
 always available.
 
-You can either clone the `DiskCache repository <https://github.com/grantjenks/python-diskcache>`_::
+You can either clone the `DiskCache repository <https://github.com/secondwindoss/diskcache-community>`_::
 
-    $ git clone https://github.com/grantjenks/python-diskcache.git
+    $ git clone https://github.com/secondwindoss/diskcache-community.git
 
-Download the `tarball <https://github.com/grantjenks/python-diskcache/tarball/master>`_::
+Download the `tarball <https://github.com/secondwindoss/diskcache-community/tarball/master>`_::
 
-    $ curl -OL https://github.com/grantjenks/python-diskcache/tarball/master
+    $ curl -OL https://github.com/secondwindoss/diskcache-community/tarball/master
 
-Or, download the `zipball <https://github.com/grantjenks/python-diskcache/zipball/master>`_::
+Or, download the `zipball <https://github.com/secondwindoss/diskcache-community/zipball/master>`_::
 
-    $ curl -OL https://github.com/grantjenks/python-diskcache/zipball/master
+    $ curl -OL https://github.com/secondwindoss/diskcache-community/zipball/master
 
 Once you have a copy of the source, you can embed it in your Python package,
 or install it into your site-packages easily::
@@ -56,7 +56,7 @@ help, please open an issue in the `DiskCache Issue Tracker`_.
 :doc:`DiskCache <index>` is looking for a CentOS/RPM package maintainer. If you
 can help, please open an issue in the `DiskCache Issue Tracker`_.
 
-.. _`DiskCache Issue Tracker`: https://github.com/grantjenks/python-diskcache/issues/
+.. _`DiskCache Issue Tracker`: https://github.com/secondwindoss/diskcache-community/issues/
 
 .. _tutorial-cache:
 
