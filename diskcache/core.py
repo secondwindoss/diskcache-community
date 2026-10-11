@@ -546,38 +546,38 @@ class Cache:
         # Use triggers to keep Metadata updated.
 
         sql(
-            "CREATE TRIGGER IF NOT EXISTS Settings_count_insert"
-            " AFTER INSERT ON Cache FOR EACH ROW BEGIN"
-            " UPDATE Settings SET value = value + 1"
+            'CREATE TRIGGER IF NOT EXISTS Settings_count_insert'
+            ' AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+            ' UPDATE Settings SET value = value + 1'
             " WHERE key = 'count'; END"
         )
 
         sql(
-            "CREATE TRIGGER IF NOT EXISTS Settings_count_delete"
-            " AFTER DELETE ON Cache FOR EACH ROW BEGIN"
-            " UPDATE Settings SET value = value - 1"
+            'CREATE TRIGGER IF NOT EXISTS Settings_count_delete'
+            ' AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+            ' UPDATE Settings SET value = value - 1'
             " WHERE key = 'count'; END"
         )
 
         sql(
-            "CREATE TRIGGER IF NOT EXISTS Settings_size_insert"
-            " AFTER INSERT ON Cache FOR EACH ROW BEGIN"
-            " UPDATE Settings SET value = value + NEW.size"
+            'CREATE TRIGGER IF NOT EXISTS Settings_size_insert'
+            ' AFTER INSERT ON Cache FOR EACH ROW BEGIN'
+            ' UPDATE Settings SET value = value + NEW.size'
             " WHERE key = 'size'; END"
         )
 
         sql(
-            "CREATE TRIGGER IF NOT EXISTS Settings_size_update"
-            " AFTER UPDATE ON Cache FOR EACH ROW BEGIN"
-            " UPDATE Settings"
-            " SET value = value + NEW.size - OLD.size"
+            'CREATE TRIGGER IF NOT EXISTS Settings_size_update'
+            ' AFTER UPDATE ON Cache FOR EACH ROW BEGIN'
+            ' UPDATE Settings'
+            ' SET value = value + NEW.size - OLD.size'
             " WHERE key = 'size'; END"
         )
 
         sql(
-            "CREATE TRIGGER IF NOT EXISTS Settings_size_delete"
-            " AFTER DELETE ON Cache FOR EACH ROW BEGIN"
-            " UPDATE Settings SET value = value - OLD.size"
+            'CREATE TRIGGER IF NOT EXISTS Settings_size_delete'
+            ' AFTER DELETE ON Cache FOR EACH ROW BEGIN'
+            ' UPDATE Settings SET value = value - OLD.size'
             " WHERE key = 'size'; END"
         )
 

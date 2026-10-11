@@ -38,8 +38,6 @@ def test_hasattr_unknown_attribute(cache):
         _ = cache.definitely_missing_attr_xyz
 
 
-
-
 def test_init(cache):
     default_settings = dc.DEFAULT_SETTINGS.copy()
     del default_settings['size_limit']
@@ -337,7 +335,11 @@ def test_get_timeout_expire_time(cache):
 
     with mock.patch.object(cache, '_shards', shards):
         assert cache.get(0, expire_time=True) == (None, None)
-        assert cache.get(0, default=1, expire_time=True, tag=True) == (1, None, None)
+        assert cache.get(0, default=1, expire_time=True, tag=True) == (
+            1,
+            None,
+            None,
+        )
 
 
 def test_pop_timeout_expire_time(cache):
@@ -351,7 +353,11 @@ def test_pop_timeout_expire_time(cache):
 
     with mock.patch.object(cache, '_shards', shards):
         assert cache.pop(0, expire_time=True) == (None, None)
-        assert cache.pop(0, default=1, expire_time=True, tag=True) == (1, None, None)
+        assert cache.pop(0, default=1, expire_time=True, tag=True) == (
+            1,
+            None,
+            None,
+        )
 
 
 def test_delete_timeout(cache):

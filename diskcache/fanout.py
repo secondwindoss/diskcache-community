@@ -12,6 +12,7 @@ import time
 from .core import DEFAULT_SETTINGS, ENOVAL, Cache, Disk, Timeout
 from .persistent import Deque, Index
 
+
 def _default_with_meta(default, expire_time, tag):
     """Match Cache.get/pop: wrap default when expire_time or tag is requested."""
     if expire_time and tag:
