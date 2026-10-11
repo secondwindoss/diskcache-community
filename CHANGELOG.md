@@ -12,6 +12,12 @@ First release under the `diskcache-community` name: upstream commit ebfa37c plus
 - Create every directory the cache makes with mode `0700`, including missing parents and the value subdirectories, and leave existing directories alone; includes upstream pull request 359 (#7).
 - Warn at import time when the upstream `diskcache` distribution is installed next to `diskcache-community`, since both own the same package directory (#9).
 
+### Features
+
+- Read-only caches (upstream issue 113): opening an existing cache writes nothing unless a setting differs from the stored one, so a `cache.db` snapshot stays byte-identical across runs; a cache whose database or directory is not writable opens read-only, as does `Cache(directory, read_only=True)`, with reads, iteration, `check()` and memoize hits working and every write raising `ReadOnlyError`, a subclass of `sqlite3.OperationalError` (#17).
+- `store_time=True` on `Cache.get`, `FanoutCache.get` and `DjangoCache.get` appends the store time to the returned tuple after any other requested metadata (upstream issue 330) (#16).
+- `Cache.iterkeys(tag=...)` iterates the keys with a given tag, using the tag index when enabled; includes upstream pull request 372 (upstream issue 341) (#16).
+
 ### Fixes
 
 - Support SQLite builds compiled with `SQLITE_DQS=0`, such as conda-forge's sqlite builds of early 2025: single-quoted literals in the `Settings` triggers and statistics counters (upstream pull request 311), and caches written by earlier versions get their triggers rewritten on first open when the stored text differs (#3).
@@ -36,3 +42,4 @@ First release under the `diskcache-community` name: upstream commit ebfa37c plus
 - Add golden compatibility fixtures written by diskcache 5.6.3 for every container, eviction policy, tag index, statistics, `JSONDisk`, memoized calls and file-backed values, with tests that read them with the current code and a reverse-direction test that reads a fork-written cache with 5.6.3 (#5).
 - Run the test suite in CI against a SQLite built from source with `SQLITE_DQS=0` (#10).
 - Rework the release workflow: tag-version check, build and twine check, TestPyPI dry run by dispatch, PyPI publish through trusted publishing behind the `pypi` environment, and a GitHub release with this changelog section (#14).
+- Make the `incr` and `decr` expiry tests and the Django tests deterministic under pytest-xdist, so slow runners no longer fail them (#15).
