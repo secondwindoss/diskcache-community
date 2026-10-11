@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.7.0 (unreleased)
+
+First release under the `diskcache-community` name: upstream commit ebfa37c plus the changes below. The import name stays `diskcache`; the `cache.db` schema, the file layout, the serialization modes, the memoize key format and the persisted settings are unchanged, so a 5.6.3 process opens a directory written by 5.7.0 and the reverse.
 
 ### Security
 
@@ -17,6 +19,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 - Write bytes values without the `io.BytesIO` copy (upstream pull request 333) and fix a README typo (upstream pull request 365) (#3).
 - Accept either path separator in stored filenames, so a cache written on Windows opens on other systems and `check()` stays clean across platforms (#6).
 - A parameter name in the `ignore` set of `memoize` matches the argument whether it is passed positionally or by keyword; keys of calls that do not pass an ignored parameter positionally are unchanged (#8).
+- Close the SQLite connections of threads that have exited, from `close()` and when a `Cache` is garbage collected; keep connections inherited across `fork()` unused in the child, as SQLite requires, and let `fork()` wait for transactions in flight in other threads (upstream issues 295, 325 and 336; upstream pull request 299 was not taken because it serializes every transaction) (#13).
 
 ### Packaging
 
@@ -25,9 +28,11 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 ### Docs
 
 - Add the fork notice and migration steps to the README, plus `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md` and this changelog; point the documentation and repository links at this fork and remove the upstream analytics, logo and funding links from the docs (#4).
+- Record the changes in this changelog and extend the README fork notice (#12).
 
 ### Tests and CI
 
 - Replace the upstream CI with one `ci.yml` workflow: lint checks, tests on Python 3.10 to 3.14 on Linux, macOS and Windows, Django 4.2 and 6.0 jobs, and an import check without Django (#1).
 - Add golden compatibility fixtures written by diskcache 5.6.3 for every container, eviction policy, tag index, statistics, `JSONDisk`, memoized calls and file-backed values, with tests that read them with the current code and a reverse-direction test that reads a fork-written cache with 5.6.3 (#5).
 - Run the test suite in CI against a SQLite built from source with `SQLITE_DQS=0` (#10).
+- Rework the release workflow: tag-version check, build and twine check, TestPyPI dry run by dispatch, PyPI publish through trusted publishing behind the `pypi` environment, and a GitHub release with this changelog section (#14).

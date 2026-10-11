@@ -62,8 +62,8 @@ and no fixed upstream version exists. This fork publishes the same library as
 compatible with 5.6.3 caches and adds an opt-in ``SafeDisk``, selected with
 ``Cache(directory, disk=SafeDisk)`` and likewise on ``FanoutCache``,
 ``Deque``, ``Index`` and the Django ``DISK`` option; 6.0.0 makes safe
-reading the default. No release has been published yet; ``SECURITY.md`` in the
-repository describes the current state.
+reading the default. 5.7.0 is the first release of the fork; ``SECURITY.md``
+in the repository describes what it does and does not change.
 
 What stays the same:
 
