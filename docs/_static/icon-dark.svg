@@ -1,0 +1,9 @@
+<!-- diskcache-community logo. Wordmark set in Space Grotesk SemiBold and IBM Plex Mono (SIL Open Font License 1.1) and converted to outlines. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="diskcache">
+  <path d="M10 14v36a22 8 0 0 0 44 0V14z" fill="#2BB5A5"/>
+  <ellipse cx="32" cy="14" rx="22" ry="8" fill="#2BB5A5"/>
+  <ellipse cx="32" cy="14" rx="22" ry="8" fill="#FFFFFF" fill-opacity="0.28"/>
+  <path d="M10 26a22 8 0 0 0 44 0" fill="none" stroke="#0D1117" stroke-width="2.5"/>
+  <path d="M10 38a22 8 0 0 0 44 0" fill="none" stroke="#0D1117" stroke-width="2.5"/>
+  <path d="M36 21L23 39h8l-4 14 14-20h-8z" fill="#F2B33D" stroke="#0D1117" stroke-width="3" stroke-linejoin="round" paint-order="stroke"/>
+</svg>

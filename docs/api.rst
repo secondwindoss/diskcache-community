@@ -1,4 +1,9 @@
-.. automodule:: diskcache
+DiskCache API Reference
+=======================
+
+.. py:module:: diskcache
+
+The :doc:`tutorial` provides a helpful walkthrough of most methods.
 
 .. contents::
    :local:
