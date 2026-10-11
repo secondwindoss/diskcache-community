@@ -1,0 +1,9 @@
+diskcache-community
+Copyright 2026 diskcache-community contributors
+
+This project is a fork of DiskCache (https://github.com/grantjenks/python-diskcache).
+Original work copyright 2016-2023 Grant Jenks, licensed under the Apache License,
+Version 2.0 (see LICENSE).
+
+Modifications made in this fork are copyright 2026 diskcache-community contributors
+and are distributed under the same license.
