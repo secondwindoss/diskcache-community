@@ -614,3 +614,29 @@ def test_fanout_cache_disk_argument(directory):
         safe.close()
         inherited.close()
 
+
+def test_django_disk_option(directory):
+    pytest.importorskip('django')
+
+    for params in (
+        {'DISK': 'diskcache.SafeDisk'},
+        {'DISK': dc.SafeDisk},
+        {'OPTIONS': {'disk': dc.SafeDisk}},
+    ):
+        django_cache = dc.DjangoCache(directory, params)
+        assert type(django_cache._cache.disk) is dc.SafeDisk
+        assert django_cache.set('key', {'a': [1, 2]})
+        assert django_cache.get('key') == {'a': [1, 2]}
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            django_cache.set('custom', Custom())
+        assert type(django_cache.cache('sub').disk) is dc.SafeDisk
+        assert type(django_cache.deque('deque').cache.disk) is dc.SafeDisk
+        assert type(django_cache.index('index').cache.disk) is dc.SafeDisk
+        django_cache.close()
+
+    default = dc.DjangoCache(directory, {})
+    assert type(default._cache.disk) is dc.Disk
+    default.close()
+
+    with pytest.raises(ImportError):
+        dc.DjangoCache(directory, {'DISK': 'diskcache.NoSuchDisk'})

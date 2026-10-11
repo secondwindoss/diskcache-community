@@ -3,6 +3,7 @@
 from functools import wraps
 
 from django.core.cache.backends.base import BaseCache
+from django.utils.module_loading import import_string
 
 try:
     from django.core.cache.backends.base import DEFAULT_TIMEOUT
@@ -10,7 +11,7 @@ except ImportError:  # pragma: no cover
     # For older versions of Django simply use 300 seconds.
     DEFAULT_TIMEOUT = 300
 
-from .core import ENOVAL, args_to_key, full_name
+from .core import ENOVAL, Disk, args_to_key, full_name
 from .fanout import FanoutCache
 
 
@@ -20,6 +21,13 @@ class DjangoCache(BaseCache):
     def __init__(self, directory, params):
         """Initialize DjangoCache instance.
 
+        The `params` mapping holds the keys of the Django ``CACHES`` setting.
+        ``SHARDS`` and ``DATABASE_TIMEOUT`` configure the underlying
+        :class:`FanoutCache <diskcache.FanoutCache>`, ``DISK`` selects the
+        :class:`Disk <diskcache.Disk>` type or subclass used for serialization
+        as a class or a dotted import path such as ``'diskcache.SafeDisk'``,
+        and ``OPTIONS`` passes further settings through.
+
         :param str directory: cache directory
         :param dict params: cache parameters
 
@@ -27,8 +35,13 @@ class DjangoCache(BaseCache):
         super().__init__(params)
         shards = params.get('SHARDS', 8)
         timeout = params.get('DATABASE_TIMEOUT', 0.010)
-        options = params.get('OPTIONS', {})
-        self._cache = FanoutCache(directory, shards, timeout, **options)
+        options = dict(params.get('OPTIONS', {}))
+        disk = params.get('DISK', options.pop('disk', Disk))
+        if isinstance(disk, str):
+            disk = import_string(disk)
+        self._cache = FanoutCache(
+            directory, shards, timeout, disk=disk, **options
+        )
 
     @property
     def directory(self):
