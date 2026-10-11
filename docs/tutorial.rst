@@ -48,7 +48,7 @@ Or, download the `zipball <https://github.com/grantjenks/python-diskcache/zipbal
 Once you have a copy of the source, you can embed it in your Python package,
 or install it into your site-packages easily::
 
-    $ python setup.py install
+    $ pip install .
 
 :doc:`DiskCache <index>` is looking for a Debian package maintainer. If you can
 help, please open an issue in the `DiskCache Issue Tracker`_.
