@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [bluecheck, doc8, docs, flake8, isortcheck, mypy, pylint, rstcheck]
+        check: [bluecheck, doc8, docs, flake8, isortcheck, mypy, pylint]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

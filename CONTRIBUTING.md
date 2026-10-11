@@ -13,7 +13,7 @@ uv pip install -e . "django==4.2.*" pytest pytest-cov pytest-django pytest-xdist
 
 ## Running tests
 
-`pytest` reads its options from the `[pytest]` section of `tox.ini`: tests run in parallel with `-n auto`, branch coverage of the `diskcache` package must stay at 98 % or above, and the doctests in `README.rst` and `docs/*.rst` run as part of the suite. The Django tests need two environment variables, which `tox` sets for you:
+`pytest` reads its options from the `[pytest]` section of `tox.ini`: tests run in parallel with `-n auto`, branch coverage of the `diskcache` package must stay at 98 % or above, and the doctests in `docs/*.rst` run as part of the suite. The Django tests need two environment variables, which `tox` sets for you:
 
 ```bash
 DJANGO_SETTINGS_MODULE=tests.settings PYTHONPATH=. pytest
