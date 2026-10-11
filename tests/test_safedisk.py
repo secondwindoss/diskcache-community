@@ -505,3 +505,112 @@ def test_disk_choice_not_persisted(directory):
         assert cache['key'] == {'a': [1, 2]}
         with pytest.raises(pickle.UnpicklingError):
             cache['custom']  # pylint: disable=pointless-statement
+
+
+def test_deque_disk(directory):
+    deque = dc.Deque(range(3), directory=directory, disk=dc.SafeDisk)
+    assert type(deque.cache.disk) is dc.SafeDisk
+    deque.append({'a': (1, 2)})
+    assert list(deque) == [0, 1, 2, {'a': (1, 2)}]
+
+    with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+        deque.append(Custom())
+
+    with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+        deque.appendleft(Custom())
+
+    assert len(deque) == 4
+
+    other = dc.Deque(directory=directory, disk=dc.SafeDisk)
+    assert list(other) == [0, 1, 2, {'a': (1, 2)}]
+
+    default = dc.Deque(directory=directory)
+    assert type(default.cache.disk) is dc.Disk
+
+    deque.cache.close()
+    other.cache.close()
+    default.cache.close()
+
+
+def test_index_disk(directory):
+    index = dc.Index(directory, {'a': 1}, disk=dc.SafeDisk, b=2)
+    assert type(index.cache.disk) is dc.SafeDisk
+    assert dict(index) == {'a': 1, 'b': 2}
+
+    with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+        index['c'] = Custom()
+
+    with pytest.raises(TypeError, match='SafeDisk cannot store key'):
+        index[Custom()] = 3
+
+    assert len(index) == 2
+
+    temporary = dc.Index(disk=dc.SafeDisk, c=3)
+    assert type(temporary.cache.disk) is dc.SafeDisk
+    assert temporary['c'] == 3
+
+    default = dc.Index(directory)
+    assert type(default.cache.disk) is dc.Disk
+    assert default['b'] == 2
+
+    index.cache.close()
+    temporary.cache.close()
+    default.cache.close()
+    shutil.rmtree(temporary.directory, ignore_errors=True)
+
+
+def test_fanout_disk(directory):
+    with dc.FanoutCache(directory, shards=2, disk=dc.SafeDisk) as fanout:
+        fanout['key'] = [1, 2]
+        assert fanout['key'] == [1, 2]
+
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            fanout['custom'] = Custom()
+
+        sub = fanout.cache('sub')
+        assert type(sub.disk) is dc.SafeDisk
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            sub['custom'] = Custom()
+
+        deque = fanout.deque('deque')
+        assert type(deque.cache.disk) is dc.SafeDisk
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            deque.append(Custom())
+
+        index = fanout.index('index')
+        assert type(index.cache.disk) is dc.SafeDisk
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            index['custom'] = Custom()
+
+        # An explicit disk argument is honoured for every sub-container.
+        json_cache = fanout.cache('json', disk=dc.JSONDisk)
+        assert type(json_cache.disk) is dc.JSONDisk
+        json_cache['key'] = {'a': 1}
+        assert json_cache['key'] == {'a': 1}
+
+        plain_deque = fanout.deque('plain', disk=dc.Disk)
+        assert type(plain_deque.cache.disk) is dc.Disk
+        plain_deque.append(Custom(1))
+        assert plain_deque[0] == Custom(1)
+
+        plain_index = fanout.index('plain', disk=dc.Disk)
+        assert type(plain_index.cache.disk) is dc.Disk
+        plain_index['custom'] = Custom(2)
+        assert plain_index['custom'] == Custom(2)
+
+        for container in (sub, json_cache):
+            container.close()
+        for container in (deque, index, plain_deque, plain_index):
+            container.cache.close()
+
+
+def test_fanout_cache_disk_argument(directory):
+    # Regression: FanoutCache.cache(name, disk=...) used to ignore `disk`.
+    with dc.FanoutCache(directory, shards=2) as fanout:
+        safe = fanout.cache('safe', disk=dc.SafeDisk)
+        assert type(safe.disk) is dc.SafeDisk
+        inherited = fanout.cache('inherited')
+        assert type(inherited.disk) is dc.Disk
+        safe.close()
+        inherited.close()
+

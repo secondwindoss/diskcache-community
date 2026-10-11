@@ -13,7 +13,7 @@ from collections.abc import (
 from contextlib import contextmanager
 from shutil import rmtree
 
-from .core import ENOVAL, Cache
+from .core import ENOVAL, Cache, Disk
 
 
 def _make_compare(seq_op, doc):
@@ -75,7 +75,7 @@ class Deque(Sequence):
 
     """
 
-    def __init__(self, iterable=(), directory=None, maxlen=None):
+    def __init__(self, iterable=(), directory=None, maxlen=None, disk=Disk):
         """Initialize deque instance.
 
         If directory is None then temporary directory created. The directory
@@ -83,9 +83,12 @@ class Deque(Sequence):
 
         :param iterable: iterable of items to append to deque
         :param directory: deque directory (default None)
+        :param maxlen: max length (default None, no max)
+        :param disk: `Disk` type or subclass for serialization (default
+            :class:`Disk <diskcache.Disk>`)
 
         """
-        self._cache = Cache(directory, eviction_policy='none')
+        self._cache = Cache(directory, disk=disk, eviction_policy='none')
         self._maxlen = float('inf') if maxlen is None else maxlen
         self._extend(iterable)
 
@@ -695,11 +698,16 @@ class Index(MutableMapping):
 
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, disk=Disk, **kwargs):
         """Initialize index in directory and update items.
 
         Optional first argument may be string specifying directory where items
         are stored. When None or not given, temporary directory is created.
+
+        The keyword argument `disk` selects the :class:`Disk <diskcache.Disk>`
+        type or subclass used for serialization. Every other keyword argument
+        is stored as an item, so an item named ``disk`` has to be set after
+        initialization.
 
         >>> index = Index({'a': 1, 'b': 2, 'c': 3})
         >>> len(index)
@@ -719,7 +727,7 @@ class Index(MutableMapping):
             if args and args[0] is None:
                 args = args[1:]
             directory = None
-        self._cache = Cache(directory, eviction_policy='none')
+        self._cache = Cache(directory, disk=disk, eviction_policy='none')
         self._update(*args, **kwargs)
 
     _update = MutableMapping.update
