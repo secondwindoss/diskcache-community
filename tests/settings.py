@@ -124,7 +124,11 @@ STATIC_URL = '/static/'
 
 # Caching
 
-CACHE_DIR = os.path.join(BASE_DIR, '.cache')
+# Each pytest-xdist worker gets its own directory, otherwise one worker's
+# tearDown clears keys another worker has just set.
+CACHE_DIR = os.path.join(
+    BASE_DIR, '.cache', os.environ.get('PYTEST_XDIST_WORKER', 'main')
+)
 
 CACHES = {
     'default': {
