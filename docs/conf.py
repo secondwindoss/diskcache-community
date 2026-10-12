@@ -35,7 +35,15 @@ release = diskcache.__version__
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.todo',
+    'sphinxext.opengraph',
 ]
+
+# Open Graph tags, so a shared docs link shows the project card.
+ogp_site_url = 'https://diskcache-community.readthedocs.io/en/latest/'
+ogp_site_name = 'diskcache-community'
+ogp_image = 'https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/.github/social-preview.png'
+ogp_image_alt = 'diskcache-community: the maintained fork of python-diskcache'
+ogp_description_length = 200
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

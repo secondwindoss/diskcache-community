@@ -3,3 +3,4 @@
 # Django is needed to document DjangoCache.
 django==5.2.*
 sphinx>=8,<10
+sphinxext-opengraph

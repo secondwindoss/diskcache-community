@@ -6,9 +6,14 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Docs
 
+- Shared links show a project card: a social preview image in `.github/`, and Open Graph tags on the documentation through `sphinxext-opengraph` (PR #21).
 - A logo: the README opens with a centered header (logo, name, tagline, links, badges) in the style of the other community forks, and the documentation shows the logo and a favicon (PR #20).
 - The README is rewritten in Markdown around install, usage and the fork story; the comparison tables move to a new `comparisons` page in the documentation, which gets its own landing page, and the 2016 testimonials are dropped (PR #19).
 - The documentation is published on Read the Docs at https://diskcache-community.readthedocs.io/, built from `master` on every push; the README links point there instead of at the `.rst` sources (PR #18).
+
+### Packaging
+
+- `LICENSE` now holds the full Apache License 2.0 text instead of the short boilerplate notice, so GitHub and package indexes detect the license; the copyright and fork notice stay in `NOTICE` (PR #21).
 
 ## 5.7.0 (2026-10-11)
 
