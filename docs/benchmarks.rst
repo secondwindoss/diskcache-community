@@ -1,35 +1,23 @@
 DiskCache Benchmarks
 ====================
 
-Measured on 2026-10-12 with the published diskcache-community 5.7.0 wheel.
-Every number below comes from the scripts in ``tests/benchmarks`` of the
-repository; the last section says how to run them. Treat the results as what
-they are: one machine, synthetic workloads, short keys. They show the shape of
-the costs, not what your application will see.
-
-The previous pages, :doc:`cache-benchmarks` and :doc:`djangocache-benchmarks`,
-are the old benchmarks: upstream DiskCache measured them for version 4 in
-2019, on other hardware and against other versions of every store. They stay
-for reference; the classic mix below repeats their workload.
-
-Each store runs the same seeded operation sequence. Latencies are measured per
-operation with the nanosecond performance counter and reported at the 50th,
-90th and 99th percentiles and the maximum. Every workload runs once to warm up
-and then five times (three for the multi-process and threaded workloads); the
-tables show the median run, and the "p50 across runs" column shows how much
-the median moved between runs. memcached runs with its item size limit raised
-to 4 MB for the 1 MB tier and Redis with persistence off; both are separate
-processes on localhost, so their numbers include a round trip over the
-loopback interface. Every other store uses its default settings, and the notes
-under each section say where a default matters.
+- **Reads:** 2.6 µs median in the classic mix, the fastest store there, 6 times
+  faster than memcached and 16 times faster than Redis on the same machine.
+- **Large working sets:** lmdb reads faster over 100,000 keys (0.9 µs against
+  3.2 µs at 95 % hits).
+- **Writes:** 19.2 µs median, on par with memcached (16.0 µs to 18.5 µs) and 2
+  times faster than Redis.
+- **Against diskcache 5.6.3:** reads within 0.6 µs, writes 9 to 14 % faster,
+  48 % faster for 1 MB values.
+- **Concurrency:** FanoutCache(8) is the fastest setup across processes,
+  291,478 operations per second from 8 processes; for 8 threads in one process
+  use a single Cache (188,028 against 19,715).
+- **lmdb** writes take 5.98 ms because its defaults flush to disk on every
+  write.
 
 Environment
 -----------
 
-- CPU: Apple M5 Pro, 18 cores
-- OS: macOS 27.0.1, arm64
-- Python: CPython 3.14.8
-- SQLite: 3.53.4
 - memcached: memcached 1.6.45
 - Redis: 8.10.2
 - diskcache-community Cache: diskcache-community 5.7.0
@@ -392,15 +380,6 @@ one process. The ~1 % miss rate comes from gets after deletes.
      - 0.75 s
      - 4 MB
 
-
-lmdb's writes stand out because its defaults, ``sync`` and ``metasync`` on,
-end every write transaction with two full disk flushes (``F_FULLFSYNC`` on
-macOS), about 6 ms together on this machine; its reads are the fastest here.
-It is the only store in the table that forces each write onto the disk before
-returning. DiskCache runs SQLite in WAL mode with ``synchronous`` NORMAL,
-which flushes at checkpoints, sqlitedict commits every operation through
-SQLite's default rollback journal, and memcached and Redis keep data in
-memory.
 
 Value sizes
 -----------
@@ -830,19 +809,6 @@ set p50.
      - not run
      - not run
 
-
-The 8-thread column is dominated by SQLite's behaviour under threads on this
-machine: a plain ``SELECT`` through Python's ``sqlite3`` module takes about
-2 µs from one thread and about 370 µs from each of eight threads reading the
-same database at once, 20,000 queries per second in total, and eight private
-``Cache`` objects, one per thread, hit the same wall. The shared ``Cache``
-escapes it because its threads queue on one database's write lock, so fewer
-of them are inside SQLite at any instant; ``FanoutCache(8)`` spreads writes
-over eight databases, keeps all eight threads querying at once and pays the
-full cost, in diskcache 5.6.3 exactly as in the fork. The same
-``FanoutCache`` under 8 processes is the fastest DiskCache configuration on
-the page. sqlitedict pays through the queue in front of its single
-connection; lmdb and the memory stores have no such cliff.
 
 Django backends
 ---------------

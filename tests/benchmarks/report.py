@@ -4,12 +4,12 @@ python report.py --results results/ --docs ../../docs
 """
 
 import argparse
-import datetime
 import glob
 import json
 import os
 import re
 import statistics
+import textwrap
 
 STORE_ORDER = [
     'cache',
@@ -445,18 +445,6 @@ def fork_table(docs, title):
     )
 
 
-def measured_date(docs, results_dir):
-    """The date the results were measured: recorded by the runner, else the
-    modification date of the newest result file."""
-    dates = [doc['environment'].get('date') for doc in docs.values()]
-    dates = [date for date in dates if date]
-    if dates:
-        return max(dates)
-    paths = glob.glob(os.path.join(results_dir, '*.json'))
-    newest = max(os.path.getmtime(path) for path in paths)
-    return datetime.date.fromtimestamp(newest).isoformat()
-
-
 # ---------------------------------------------------------------- charts
 
 
@@ -637,6 +625,114 @@ def chart_django(docs, out_dir):
 # ------------------------------------------------------------------ page
 
 
+def summary_section(docs):
+    """The conclusions at the top of the page, each computed from the results
+    and left out when its results are missing."""
+
+    def p50(workload, store, action, tier=None):
+        doc = docs.get((workload, store))
+        return stat(doc, action, 'p50', tier) if doc else None
+
+    def ops(workload, store):
+        doc = docs.get((workload, store))
+        if not doc:
+            return None
+        return med([r['throughput_ops_s'] for r in doc['runs']])
+
+    lines = []
+    get, put = p50('classic', 'cache', 'get'), p50('classic', 'cache', 'set')
+    memcached_get = [
+        p50('classic', s, 'get') for s in ('pymemcache', 'pylibmc')
+    ]
+    memcached_set = [
+        p50('classic', s, 'set') for s in ('pymemcache', 'pylibmc')
+    ]
+    redis_get = p50('classic', 'redis', 'get')
+    redis_set = p50('classic', 'redis', 'set')
+    lmdb_set = p50('classic', 'lmdb', 'set')
+    if get and None not in memcached_get and redis_get:
+        others = [p50('classic', s, 'get') for s in STORE_ORDER[3:]]
+        fastest = all(other is None or get <= other for other in others)
+        lines.append(
+            '- **Reads:** %s median in the classic mix%s, %.0f times faster'
+            ' than memcached and %.0f times faster than Redis on the same'
+            ' machine.'
+            % (
+                fmt_ns(get),
+                ', the fastest store there' if fastest else '',
+                min(memcached_get) / get,
+                redis_get / get,
+            )
+        )
+    hit_cache, hit_lmdb = p50('hit95', 'cache', 'get'), p50(
+        'hit95', 'lmdb', 'get'
+    )
+    if hit_cache and hit_lmdb and hit_lmdb < hit_cache:
+        lines.append(
+            '- **Large working sets:** lmdb reads faster over 100,000 keys'
+            ' (%s against %s at 95 %% hits).'
+            % (fmt_ns(hit_lmdb), fmt_ns(hit_cache))
+        )
+    if put and None not in memcached_set and redis_set:
+        lines.append(
+            '- **Writes:** %s median, on par with memcached (%s to %s) and %.0f'
+            ' times faster than Redis.'
+            % (
+                fmt_ns(put),
+                fmt_ns(min(memcached_set)),
+                fmt_ns(max(memcached_set)),
+                redis_set / put,
+            )
+        )
+    reads, writes = [], []
+    for _label, workload, new, old, kind, action, tier in FORK_ROWS:
+        if kind != 'p50':
+            continue
+        values = (
+            p50(workload, old, action, tier),
+            p50(workload, new, action, tier),
+        )
+        if None in values:
+            continue
+        if action == 'get':
+            reads.append(abs(values[1] - values[0]))
+        elif workload != 'django':
+            writes.append(((values[0] - values[1]) / values[0] * 100, tier))
+    if reads and writes:
+        large = [change for change, tier in writes if tier == '1 MB']
+        small = [change for change, tier in writes if tier != '1 MB']
+        text = (
+            '- **Against diskcache 5.6.3:** reads within %s, writes %.0f to %.0f %%'
+            ' faster' % (fmt_ns(max(reads)), min(small), max(small))
+        )
+        if large:
+            text += ', %.0f %% faster for 1 MB values' % large[0]
+        lines.append(text + '.')
+    fanout8, cache_threads, fanout_threads = (
+        ops('procs8', 'fanout'),
+        ops('threads8', 'cache'),
+        ops('threads8', 'fanout'),
+    )
+    if fanout8 and cache_threads and fanout_threads:
+        lines.append(
+            '- **Concurrency:** FanoutCache(8) is the fastest setup across'
+            ' processes, {:,.0f} operations per second from 8 processes; for 8'
+            ' threads in one process use a single Cache ({:,.0f} against'
+            ' {:,.0f}).'.format(fanout8, cache_threads, fanout_threads)
+        )
+    if lmdb_set:
+        lines.append(
+            '- **lmdb** writes take %s because its defaults flush to disk on'
+            ' every write.' % fmt_ns(lmdb_set)
+        )
+    return '\n'.join(
+        textwrap.fill(
+            line.replace(' %', '\u00a0%'), 79, subsequent_indent='  '
+        )
+        for line in lines
+    )
+
+
 def environment_section(docs):
     env = next(iter(docs.values()))['environment']
     versions = []
@@ -650,17 +746,9 @@ def environment_section(docs):
     django = docs.get(('django', 'django-locmem'))
     if django:
         versions.append('- %s' % django['store_name'].replace(' locmem', ''))
-    platform = env['platform']
-    match = re.match(r'^macOS-([\d.]+)-(\w+)', platform)
-    if match:
-        platform = 'macOS %s, %s' % match.groups()
     redis = re.search(r'v=([\d.]+)', env['redis'] or '')
     return '\n'.join(
         [
-            '- CPU: %s, %s cores' % (env['cpu'], env['cores']),
-            '- OS: %s' % platform,
-            '- Python: %s %s' % (env['implementation'], env['python']),
-            '- SQLite: %s' % env['sqlite'],
             '- memcached: %s' % env['memcached'].splitlines()[0]
             if env['memcached']
             else '- memcached: n/a',
@@ -673,27 +761,7 @@ def environment_section(docs):
 PAGE = """DiskCache Benchmarks
 ====================
 
-Measured on {date} with the published diskcache-community {fork_version} wheel.
-Every number below comes from the scripts in ``tests/benchmarks`` of the
-repository; the last section says how to run them. Treat the results as what
-they are: one machine, synthetic workloads, short keys. They show the shape of
-the costs, not what your application will see.
-
-The previous pages, :doc:`cache-benchmarks` and :doc:`djangocache-benchmarks`,
-are the old benchmarks: upstream DiskCache measured them for version 4 in
-2019, on other hardware and against other versions of every store. They stay
-for reference; the classic mix below repeats their workload.
-
-Each store runs the same seeded operation sequence. Latencies are measured per
-operation with the nanosecond performance counter and reported at the 50th,
-90th and 99th percentiles and the maximum. Every workload runs once to warm up
-and then five times (three for the multi-process and threaded workloads); the
-tables show the median run, and the "p50 across runs" column shows how much
-the median moved between runs. memcached runs with its item size limit raised
-to 4 MB for the 1 MB tier and Redis with persistence off; both are separate
-processes on localhost, so their numbers include a round trip over the
-loopback interface. Every other store uses its default settings, and the notes
-under each section say where a default matters.
+{summary}
 
 Environment
 -----------
@@ -723,15 +791,6 @@ one process. The ~1 % miss rate comes from gets after deletes.
 {classic_set}
 {classic_delete}
 {classic_summary}
-
-lmdb's writes stand out because its defaults, ``sync`` and ``metasync`` on,
-end every write transaction with two full disk flushes (``F_FULLFSYNC`` on
-macOS), about 6 ms together on this machine; its reads are the fastest here.
-It is the only store in the table that forces each write onto the disk before
-returning. DiskCache runs SQLite in WAL mode with ``synchronous`` NORMAL,
-which flushes at checkpoints, sqlitedict commits every operation through
-SQLite's default rollback journal, and memcached and Redis keep data in
-memory.
 
 Value sizes
 -----------
@@ -774,19 +833,6 @@ set p50.
 {concurrency}
 {throughput}
 
-The 8-thread column is dominated by SQLite's behaviour under threads on this
-machine: a plain ``SELECT`` through Python's ``sqlite3`` module takes about
-2 µs from one thread and about 370 µs from each of eight threads reading the
-same database at once, 20,000 queries per second in total, and eight private
-``Cache`` objects, one per thread, hit the same wall. The shared ``Cache``
-escapes it because its threads queue on one database's write lock, so fewer
-of them are inside SQLite at any instant; ``FanoutCache(8)`` spreads writes
-over eight databases, keeps all eight threads querying at once and pays the
-full cost, in diskcache 5.6.3 exactly as in the fork. The same
-``FanoutCache`` under 8 processes is the fastest DiskCache configuration on
-the page. sqlitedict pays through the queue in front of its single
-connection; lmdb and the memory stores have no such cliff.
-
 Django backends
 ---------------
 
@@ -819,18 +865,14 @@ report script writes this page and its charts.
 """
 
 
-def build_page(docs, date):
-    fork = docs.get(('classic', 'cache'))
-    fork_version = fork['store_version'].split()[-1] if fork else ''
-
+def build_page(docs):
     def dj(action, title):
         return op_table(
             docs, 'django', action, title, DJANGO_ORDER, DJANGO_LABELS
         )
 
     return PAGE.format(
-        date=date,
-        fork_version=fork_version,
+        summary=summary_section(docs),
         environment=environment_section(docs),
         fork=fork_table(docs, 'diskcache-community against diskcache 5.6.3'),
         classic_get=op_table(
@@ -887,9 +929,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--results', required=True)
     parser.add_argument('--docs', required=True)
-    parser.add_argument(
-        '--date', help='measurement date (default: from the results)'
-    )
     args = parser.parse_args()
     docs = load(args.results)
     charts_dir = os.path.join(args.docs, '_static', 'benchmarks')
@@ -899,7 +938,7 @@ def main():
     chart_throughput(docs, charts_dir)
     if any(w == 'django' for w, _ in docs):
         chart_django(docs, charts_dir)
-    page = build_page(docs, args.date or measured_date(docs, args.results))
+    page = build_page(docs)
     with open(os.path.join(args.docs, 'benchmarks.rst'), 'w') as writer:
         writer.write(page)
     print(
