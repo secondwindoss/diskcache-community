@@ -62,7 +62,7 @@ Install development dependencies with `pip <http://www.pip-installer.org/>`_::
 All packages for running tests and the lint checks will be installed.
 
 Additional packages like ``pylibmc`` and ``redis`` along with their server
-counterparts are necessary for some benchmarks.
+counterparts are necessary for the benchmarks.
 
 Testing
 -------
@@ -140,8 +140,15 @@ let it run overnight. Stress testing will stop at the first failure.
 Running Benchmarks
 ------------------
 
-Running and plotting benchmarks is a two step process. Each is a Python script
-in the tests directory. Benchmark scripts are prefixed with ``benchmark_``. For
+The :doc:`benchmarks` page is written by the scripts in ``tests/benchmarks``.
+``driver.py`` starts memcached and Redis, runs each store in its own process
+from a virtual environment with diskcache-community and one with diskcache
+5.6.3, and stores JSON results; ``report.py`` turns the results into the page
+and its charts. The page's last section lists the commands.
+
+The scripts below produced the :doc:`old benchmarks (2019) <cache-benchmarks>`.
+Running and plotting them is a two step process. Each is a Python script in
+the tests directory. Benchmark scripts are prefixed with ``benchmark_``. For
 example:
 
 ::

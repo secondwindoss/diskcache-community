@@ -13,6 +13,7 @@
 <h4><p align="center">
 <a href="https://diskcache-community.readthedocs.io/en/latest/tutorial.html">[Tutorial]</a>
 - <a href="https://diskcache-community.readthedocs.io/en/latest/api.html">[API]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/benchmarks.html">[Benchmarks]</a>
 - <a href="https://diskcache-community.readthedocs.io/en/latest/">[Docs]</a>
 - <a href="https://github.com/secondwindoss/diskcache-community/blob/master/CHANGELOG.md">[Changelog]</a>
 </p></h4>
@@ -108,9 +109,11 @@ cache = Cache('cache', disk=SafeDisk)
 - Read-only mode, automatic when the directory is not writable
 - Opt-in `SafeDisk` for caches whose directory other users can write to
 - Pure Python on top of the standard library `sqlite3`; no server, no compiler
-- Tested on CPython 3.10 to 3.14 on Linux, macOS and Windows, with
-  [benchmarks](https://diskcache-community.readthedocs.io/en/latest/cache-benchmarks.html)
-  against the alternatives
+- Tested on CPython 3.10 to 3.14 on Linux, macOS and Windows
+- Gets in about 2.6 µs and sets in about 19 µs on an Apple M5 Pro in the
+  [benchmarks](https://diskcache-community.readthedocs.io/en/latest/benchmarks.html)
+  against memcached, Redis, lmdb, sqlitedict and shelve; sets are 9 to 14 %
+  faster than in diskcache 5.6.3, and twice as fast for 1 MB values
 
 ## Why this fork
 
@@ -171,8 +174,12 @@ The documentation is at
 
 - [Tutorial](https://diskcache-community.readthedocs.io/en/latest/tutorial.html)
 - [API reference](https://diskcache-community.readthedocs.io/en/latest/api.html)
-- [Cache benchmarks](https://diskcache-community.readthedocs.io/en/latest/cache-benchmarks.html)
-  and [DjangoCache benchmarks](https://diskcache-community.readthedocs.io/en/latest/djangocache-benchmarks.html)
+- [Benchmarks](https://diskcache-community.readthedocs.io/en/latest/benchmarks.html)
+  against memcached, Redis, lmdb, sqlitedict and shelve, the Django cache
+  backends, and diskcache 5.6.3 (measured 2026-10-12)
+- Old benchmarks from 2019, measured by upstream for version 4:
+  [Cache](https://diskcache-community.readthedocs.io/en/latest/cache-benchmarks.html)
+  and [DjangoCache](https://diskcache-community.readthedocs.io/en/latest/djangocache-benchmarks.html)
 - [Comparisons](https://diskcache-community.readthedocs.io/en/latest/comparisons.html)
   with other key-value stores and caching libraries
 - Case studies:

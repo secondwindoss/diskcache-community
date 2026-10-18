@@ -69,7 +69,7 @@ Integrations?    Django        None      None      None         None
 
 **Timings**
 
-These are rough measurements. See :doc:`cache-benchmarks` for more
+These are rough measurements. See :doc:`benchmarks` for more
 rigorous data.
 
 ================ ============= ========= ========= ============ ============

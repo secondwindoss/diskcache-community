@@ -21,13 +21,16 @@ Install it with pip and import ``diskcache_community`` where you imported
 
     $ pip install diskcache-community
 
-Start with the :doc:`tutorial` and keep the :doc:`api` at hand.
+Start with the :doc:`tutorial` and keep the :doc:`api` at hand. The
+:doc:`benchmarks` compare DiskCache with memcached, Redis, lmdb and other
+stores, and the fork with diskcache 5.6.3.
 
 .. toctree::
    :maxdepth: 1
    :titlesonly:
 
    tutorial
+   benchmarks
    cache-benchmarks
    djangocache-benchmarks
    case-study-web-crawler
