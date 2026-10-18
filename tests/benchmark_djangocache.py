@@ -1,4 +1,4 @@
-"""Benchmark diskcache.DjangoCache
+"""Benchmark diskcache_community.DjangoCache
 
 $ export PYTHONPATH=/Users/grantj/repos/python-diskcache
 $ python tests/benchmark_djangocache.py > tests/timings_djangocache.txt

@@ -63,11 +63,12 @@ can help, please open an issue in the `DiskCache Issue Tracker`_.
 Cache
 -----
 
-The core of :doc:`DiskCache <index>` is :class:`diskcache.Cache` which
-represents a disk and file backed cache. As a Cache, it supports a familiar
-Python mapping interface with additional cache and performance parameters.
+The core of :doc:`DiskCache <index>` is :class:`diskcache_community.Cache`
+which represents a disk and file backed cache. As a Cache, it supports a
+familiar Python mapping interface with additional cache and performance
+parameters.
 
-    >>> from diskcache import Cache
+    >>> from diskcache_community import Cache
     >>> cache = Cache()
 
 Initialization expects a directory path reference. If the directory path does
@@ -88,7 +89,7 @@ Calling :meth:`close <.Cache.close>` closes the calling thread's connection
 and the connections of threads that have exited; connections that other
 running threads use stay open until those threads call ``close`` or the Cache
 object is garbage collected. Cache objects can be used in a `with` statement
-to safeguard calling :meth:`close <diskcache.Cache.close>`.
+to safeguard calling :meth:`close <diskcache_community.Cache.close>`.
 
 Cache objects also support process forking. Before a fork, the forking
 thread's connections are closed in the parent, where they reopen on the next
@@ -122,8 +123,8 @@ Set an item, get a value, and delete a key using the usual operators:
     True
     >>> del cache['key']
 
-There's also a :meth:`set <diskcache.Cache.set>` method with additional keyword
-parameters: `expire`, `read`, and `tag`.
+There's also a :meth:`set <diskcache_community.Cache.set>` method with
+additional keyword parameters: `expire`, `read`, and `tag`.
 
     >>> from io import BytesIO
     >>> cache.set('key', BytesIO(b'value'), expire=5, read=True, tag='data')
@@ -131,8 +132,8 @@ parameters: `expire`, `read`, and `tag`.
 
 In the example above: the key expires in 5 seconds, the value is read as a
 file-like object, and tag metadata is stored with the key. Another method,
-:meth:`get <diskcache.Cache.get>` supports querying extra information with
-`default`, `read`, `expire_time`, and `tag` keyword parameters.
+:meth:`get <diskcache_community.Cache.get>` supports querying extra information
+with `default`, `read`, `expire_time`, and `tag` keyword parameters.
 
     >>> result = cache.get('key', read=True, expire_time=True, tag=True)
     >>> reader, timestamp, tag = result
@@ -161,9 +162,9 @@ the cache.
     >>> cache.touch('does-not-exist', expire=1)
     False
 
-Like :meth:`set <diskcache.Cache.set>`, the method :meth:`add
-<diskcache.Cache.add>` can be used to insert an item in the cache. The item is
-inserted only if the key is not already present.
+Like :meth:`set <diskcache_community.Cache.set>`, the method :meth:`add
+<diskcache_community.Cache.add>` can be used to insert an item in the cache.
+The item is inserted only if the key is not already present.
 
     >>> cache.add(b'test', 123)
     True
@@ -175,7 +176,8 @@ inserted only if the key is not already present.
     123
 
 Item values can also be incremented and decremented using :meth:`incr
-<diskcache.Cache.incr>` and :meth:`decr <diskcache.Cache.decr>` methods.
+<diskcache_community.Cache.incr>` and :meth:`decr
+<diskcache_community.Cache.decr>` methods.
 
     >>> cache.incr(b'test')
     124
@@ -198,9 +200,10 @@ decrementing a missing key will raise a :exc:`KeyError`.
 Increment and decrement operations are atomic and assume the value may be
 stored in a SQLite integer column. SQLite supports 64-bit signed integers.
 
-Like :meth:`delete <diskcache.Cache.delete>` and :meth:`get
-<diskcache.Cache.get>`, the method :meth:`pop <diskcache.Cache.pop>` can be
-used to delete an item in the cache and return its value.
+Like :meth:`delete <diskcache_community.Cache.delete>` and :meth:`get
+<diskcache_community.Cache.get>`, the method :meth:`pop
+<diskcache_community.Cache.pop>` can be used to delete an item in the cache and
+return its value.
 
     >>> cache.pop('alice')
     1
@@ -217,10 +220,10 @@ used to delete an item in the cache and return its value.
     >>> print(tag)
     admin
 
-The :meth:`pop <diskcache.Cache.pop>` operation is atomic and using :meth:`incr
-<diskcache.Cache.incr>` together is an accurate method for counting and dumping
-statistics in long-running systems. Unlike :meth:`get <diskcache.Cache.get>`
-the `read` argument is not supported.
+The :meth:`pop <diskcache_community.Cache.pop>` operation is atomic and using
+:meth:`incr <diskcache_community.Cache.incr>` together is an accurate method
+for counting and dumping statistics in long-running systems. Unlike :meth:`get
+<diskcache_community.Cache.get>` the `read` argument is not supported.
 
 .. _tutorial-culling:
 
@@ -241,14 +244,15 @@ Another four methods remove items from the cache::
     >>> cache.expire()
     10
 
-:meth:`Expire <diskcache.Cache.expire>` removes all expired keys from the
-cache. Resetting the :ref:`cull_limit <tutorial-settings>` to zero will disable
-culling during :meth:`set <diskcache.Cache.set>` and :meth:`add
-<diskcache.Cache.add>` operations. Because culling is performed lazily, the
-reported length of the cache includes expired items. Iteration likewise
-includes expired items because it is a read-only operation. To exclude expired
-items you must explicitly call :meth:`expire <diskcache.Cache.expire>` which
-works regardless of the :ref:`cull_limit <tutorial-settings>`.
+:meth:`Expire <diskcache_community.Cache.expire>` removes all expired keys from
+the cache. Resetting the :ref:`cull_limit <tutorial-settings>` to zero will
+disable culling during :meth:`set <diskcache_community.Cache.set>` and
+:meth:`add <diskcache_community.Cache.add>` operations. Because culling is
+performed lazily, the reported length of the cache includes expired items.
+Iteration likewise includes expired items because it is a read-only operation.
+To exclude expired items you must explicitly call :meth:`expire
+<diskcache_community.Cache.expire>` which works regardless of the
+:ref:`cull_limit <tutorial-settings>`.
 
     >>> for num in range(100):
     ...     _ = cache.set(num, num, tag='odd' if num % 2 else 'even')
@@ -257,10 +261,10 @@ works regardless of the :ref:`cull_limit <tutorial-settings>`.
 
 .. _tutorial-tag-index:
 
-:meth:`Evict <diskcache.Cache.evict>` removes all the keys with a matching
-tag. The default tag is ``None``. Tag values may be any of integer, float,
-string, bytes and None. To accelerate the eviction of items by tag, an index
-can be created. To do so, initialize the cache with ``tag_index=True``.
+:meth:`Evict <diskcache_community.Cache.evict>` removes all the keys with a
+matching tag. The default tag is ``None``. Tag values may be any of integer,
+float, string, bytes and None. To accelerate the eviction of items by tag, an
+index can be created. To do so, initialize the cache with ``tag_index=True``.
 
     >>> cache.clear()
     50
@@ -282,9 +286,10 @@ But prefer initializing the cache with a tag index rather than explicitly
 creating or dropping the tag index.
 
 To manually enforce the cache's size limit, use the :meth:`cull
-<diskcache.Cache.cull>` method. :meth:`Cull <diskcache.Cache.cull>` begins by
-removing expired items from the cache and then uses the eviction policy to
-remove items until the cache volume is less than the size limit.
+<diskcache_community.Cache.cull>` method. :meth:`Cull
+<diskcache_community.Cache.cull>` begins by removing expired items from the
+cache and then uses the eviction policy to remove items until the cache volume
+is less than the size limit.
 
     >>> cache.clear()
     50
@@ -303,12 +308,14 @@ remove items until the cache volume is less than the size limit.
 
 Some users may defer all culling to a cron-like process by setting the
 :ref:`cull_limit <tutorial-settings>` to zero and manually calling :meth:`cull
-<diskcache.Cache.cull>` to remove items. Like :meth:`evict
-<diskcache.Cache.evict>` and :meth:`expire <diskcache.Cache.expire>`, calls to
-:meth:`cull <diskache.Cache.cull>` will work regardless of the :ref:`cull_limit
+<diskcache_community.Cache.cull>` to remove items. Like :meth:`evict
+<diskcache_community.Cache.evict>` and :meth:`expire
+<diskcache_community.Cache.expire>`, calls to :meth:`cull
+<diskache.Cache.cull>` will work regardless of the :ref:`cull_limit
 <tutorial-settings>`.
 
-:meth:`Clear <diskcache.Cache.clear>` simply removes all items from the cache.
+:meth:`Clear <diskcache_community.Cache.clear>` simply removes all items from
+the cache.
 
     >>> cache.clear() > 0
     True
@@ -381,16 +388,16 @@ and :meth:`get <.Cache.get>`, methods :meth:`push <.Cache.push>`, :meth:`pull
 expiration time and tag.
 
 Lastly, three methods support metadata about the cache. The first is
-:meth:`volume <diskcache.Cache.volume>` which returns the estimated total size
-in bytes of the cache directory on disk.
+:meth:`volume <diskcache_community.Cache.volume>` which returns the estimated
+total size in bytes of the cache directory on disk.
 
     >>> cache.volume() < int(1e5)
     True
 
 .. _tutorial-statistics:
 
-The second is :meth:`stats <diskcache.Cache.stats>` which returns cache hits
-and misses. Cache statistics must first be enabled.
+The second is :meth:`stats <diskcache_community.Cache.stats>` which returns
+cache hits and misses. Cache statistics must first be enabled.
 
     >>> cache.stats(enable=True)
     (0, 0)
@@ -407,9 +414,9 @@ Cache statistics are useful when evaluating different :ref:`eviction policies
 incur an extra overhead on cache lookups. Increment and decrement operations
 are not counted in cache statistics.
 
-The third is :meth:`check <diskcache.Cache.check>` which verifies cache
-consistency. It can also fix inconsistencies and reclaim unused space. The
-return value is a list of warnings.
+The third is :meth:`check <diskcache_community.Cache.check>` which verifies
+cache consistency. It can also fix inconsistencies and reclaim unused space.
+The return value is a list of warnings.
 
     >>> warnings = cache.check()
 
@@ -431,41 +438,46 @@ To permanently delete the cache, recursively remove the cache's directory.
 FanoutCache
 -----------
 
-Built atop :class:`Cache <diskcache.Cache>` is :class:`diskcache.FanoutCache`
-which automatically `shards` the underlying database. `Sharding`_ is the
-practice of horizontally partitioning data. Here it is used to decrease
-blocking writes. While readers and writers do not block each other, writers
-block other writers. Therefore a shard for every concurrent writer is
-suggested. This will depend on your scenario. The default value is 8.
+Built atop :class:`Cache <diskcache_community.Cache>` is
+:class:`diskcache_community.FanoutCache` which automatically `shards` the
+underlying database. `Sharding`_ is the practice of horizontally partitioning
+data. Here it is used to decrease blocking writes. While readers and writers do
+not block each other, writers block other writers. Therefore a shard for every
+concurrent writer is suggested. This will depend on your scenario. The default
+value is 8.
 
 Another parameter, `timeout`, sets a limit on how long to wait for database
 transactions. Transactions are used for every operation that writes to the
-database. When the timeout expires, a :exc:`diskcache.Timeout` error is raised
-internally. This `timeout` parameter is also present on
-:class:`diskcache.Cache`. When a :exc:`Timeout <diskcache.Timeout>` error
-occurs in :class:`Cache <diskcache.Cache>` methods, the exception may be raised
-to the caller. In contrast, :class:`FanoutCache <diskcache.FanoutCache>`
+database. When the timeout expires, a :exc:`diskcache_community.Timeout` error
+is raised internally. This `timeout` parameter is also present on
+:class:`diskcache_community.Cache`. When a :exc:`Timeout
+<diskcache_community.Timeout>` error occurs in :class:`Cache
+<diskcache_community.Cache>` methods, the exception may be raised to the
+caller. In contrast, :class:`FanoutCache <diskcache_community.FanoutCache>`
 catches all timeout errors and aborts the operation. As a result, :meth:`set
-<diskcache.FanoutCache.set>` and :meth:`delete <diskcache.FanoutCache.delete>`
-methods may silently fail.
+<diskcache_community.FanoutCache.set>` and :meth:`delete
+<diskcache_community.FanoutCache.delete>` methods may silently fail.
 
-Most methods that handle :exc:`Timeout <diskcache.Timeout>` exceptions also
-include a `retry` keyword parameter (default ``False``) to automatically repeat
-attempts that timeout. The mapping interface operators: :meth:`cache[key]
-<diskcache.FanoutCache.__getitem__>`, :meth:`cache[key] = value
-<diskcache.FanoutCache.__setitem__>`, and :meth:`del cache[key]
-<diskcache.FanoutCache.__delitem__>` automatically retry operations when
-:exc:`Timeout <diskcache.Timeout>` errors occur. :class:`FanoutCache
-<diskcache.FanoutCache>` will never raise a :exc:`Timeout <diskcache.Timeout>`
-exception. The default `timeout` is 0.010 (10 milliseconds).
+Most methods that handle :exc:`Timeout <diskcache_community.Timeout>`
+exceptions also include a `retry` keyword parameter (default ``False``) to
+automatically repeat attempts that timeout. The mapping interface operators:
+:meth:`cache[key] <diskcache_community.FanoutCache.__getitem__>`,
+:meth:`cache[key] = value <diskcache_community.FanoutCache.__setitem__>`, and
+:meth:`del cache[key] <diskcache_community.FanoutCache.__delitem__>`
+automatically retry operations when :exc:`Timeout
+<diskcache_community.Timeout>` errors occur. :class:`FanoutCache
+<diskcache_community.FanoutCache>` will never raise a :exc:`Timeout
+<diskcache_community.Timeout>` exception. The default `timeout` is 0.010 (10
+milliseconds).
 
-    >>> from diskcache import FanoutCache
+    >>> from diskcache_community import FanoutCache
     >>> cache = FanoutCache(shards=4, timeout=1)
 
 The example above creates a cache in a temporary directory with four shards and
 a one second timeout. Operations will attempt to abort if they take longer than
-one second. The remaining API of :class:`FanoutCache <diskcache.FanoutCache>`
-matches :class:`Cache <diskcache.Cache>` as described above.
+one second. The remaining API of :class:`FanoutCache
+<diskcache_community.FanoutCache>` matches :class:`Cache
+<diskcache_community.Cache>` as described above.
 
 The :class:`.FanoutCache` :ref:`size_limit <constants>` is used as the total
 size of the cache. The size limit of individual cache shards is the total size
@@ -475,10 +487,10 @@ of 256 megabytes. Items that are larger than the size limit are immediately
 culled.
 
 Caches have an additional feature: :meth:`memoizing
-<diskcache.FanoutCache.memoize>` decorator. The decorator wraps a callable and
-caches arguments and return values.
+<diskcache_community.FanoutCache.memoize>` decorator. The decorator wraps a
+callable and caches arguments and return values.
 
-    >>> from diskcache import FanoutCache
+    >>> from diskcache_community import FanoutCache
     >>> cache = FanoutCache()
     >>> @cache.memoize(typed=True, expire=1, tag='fib')
     ... def fibonacci(number):
@@ -505,7 +517,7 @@ TypeError will occur::
     TypeError: name cannot be callable
 
 Observe the lack of parenthenses after :meth:`memoize
-<diskcache.FanoutCache.memoize>` above.
+<diskcache_community.FanoutCache.memoize>` above.
 
 The ``ignore`` argument leaves arguments out of the cache key. An integer
 ignores the argument at that position and a string ignores the parameter with
@@ -525,23 +537,23 @@ arguments that do not affect the result, like a database session:
 DjangoCache
 -----------
 
-:class:`diskcache.DjangoCache` uses :class:`FanoutCache
-<diskcache.FanoutCache>` to provide a Django-compatible cache interface. With
-:doc:`DiskCache <index>` installed, you can use :class:`DjangoCache
-<diskcache.DjangoCache>` in your settings file.
+:class:`diskcache_community.DjangoCache` uses :class:`FanoutCache
+<diskcache_community.FanoutCache>` to provide a Django-compatible cache
+interface. With :doc:`DiskCache <index>` installed, you can use
+:class:`DjangoCache <diskcache_community.DjangoCache>` in your settings file.
 
 .. code-block:: python
 
     CACHES = {
         'default': {
-            'BACKEND': 'diskcache.DjangoCache',
+            'BACKEND': 'diskcache_community.DjangoCache',
             'LOCATION': '/path/to/cache/directory',
             'TIMEOUT': 300,
             # ^-- Django setting for default timeout of each key.
             'SHARDS': 8,
             'DATABASE_TIMEOUT': 0.010,  # 10 milliseconds
             # ^-- Timeout for each DjangoCache database transaction.
-            'DISK': 'diskcache.Disk',
+            'DISK': 'diskcache_community.Disk',
             # ^-- Disk type for serialization, see SafeDisk below.
             'OPTIONS': {
                 'size_limit': 2 ** 30   # 1 gigabyte
@@ -549,24 +561,26 @@ DjangoCache
         },
     }
 
-As with :class:`FanoutCache <diskcache.FanoutCache>` above, these settings
-create a Django-compatible cache with eight shards and a 10ms timeout. You can
-pass further settings via the ``OPTIONS`` mapping as shown in the Django
-documentation. ``DISK`` names the :class:`Disk <diskcache.Disk>` type or
-subclass used for serialization, as a class or a dotted import path; see
-:ref:`SafeDisk <tutorial-safedisk>` for the restricted alternative. Only the
-``BACKEND`` and ``LOCATION`` keys are necessary in the above example. The other
-keys simply display their default value. :class:`DjangoCache <diskcache.DjangoCache>` will never raise a
-:exc:`Timeout <diskcache.Timeout>` exception. But unlike :class:`FanoutCache
-<diskcache.FanoutCache>`, the keyword parameter `retry` defaults to ``True``
-for :class:`DjangoCache <diskcache.DjangoCache>` methods.
+As with :class:`FanoutCache <diskcache_community.FanoutCache>` above, these
+settings create a Django-compatible cache with eight shards and a 10ms timeout.
+You can pass further settings via the ``OPTIONS`` mapping as shown in the
+Django documentation. ``DISK`` names the :class:`Disk
+<diskcache_community.Disk>` type or subclass used for serialization, as a class
+or a dotted import path; see :ref:`SafeDisk <tutorial-safedisk>` for the
+restricted alternative. Only the ``BACKEND`` and ``LOCATION`` keys are
+necessary in the above example. The other keys simply display their default
+value. :class:`DjangoCache <diskcache_community.DjangoCache>` will never raise
+a :exc:`Timeout <diskcache_community.Timeout>` exception. But unlike
+:class:`FanoutCache <diskcache_community.FanoutCache>`, the keyword parameter
+`retry` defaults to ``True`` for :class:`DjangoCache
+<diskcache_community.DjangoCache>` methods.
 
-The API of :class:`DjangoCache <diskcache.DjangoCache>` is a superset of the
-functionality described in the `Django documentation on caching`_ and includes
-many :class:`FanoutCache <diskcache.FanoutCache>` features.
+The API of :class:`DjangoCache <diskcache_community.DjangoCache>` is a superset
+of the functionality described in the `Django documentation on caching`_ and
+includes many :class:`FanoutCache <diskcache_community.FanoutCache>` features.
 
-:class:`DjangoCache <diskcache.DjangoCache>` also works well with `X-Sendfile`
-and `X-Accel-Redirect` headers.
+:class:`DjangoCache <diskcache_community.DjangoCache>` also works well with
+`X-Sendfile` and `X-Accel-Redirect` headers.
 
 .. code-block:: python
 
@@ -581,26 +595,26 @@ and `X-Accel-Redirect` headers.
         except KeyError:
             # Handle cache miss.
 
-When values are :meth:`set <diskcache.DjangoCache.set>` using ``read=True``
-they are guaranteed to be stored in files. The full path is available on the
-file handle in the `name` attribute. Remember to also include the
-`Content-Type` header if known.
+When values are :meth:`set <diskcache_community.DjangoCache.set>` using
+``read=True`` they are guaranteed to be stored in files. The full path is
+available on the file handle in the `name` attribute. Remember to also include
+the `Content-Type` header if known.
 
 .. _`Django documentation on caching`: https://docs.djangoproject.com/en/3.2/topics/cache/#the-low-level-cache-api
 
 Deque
 -----
 
-:class:`diskcache.Deque` (pronounced "deck") uses a :class:`Cache
-<diskcache.Cache>` to provide a `collections.deque
+:class:`diskcache_community.Deque` (pronounced "deck") uses a :class:`Cache
+<diskcache_community.Cache>` to provide a `collections.deque
 <https://docs.python.org/3/library/collections.html#collections.deque>`_-compatible
 double-ended queue. Deques are a generalization of stacks and queues with fast
 access and editing at both front and back sides. :class:`Deque
-<diskcache.Deque>` objects use the :meth:`push <.Cache.push>`, :meth:`pull
-<.Cache.pull>`, and :meth:`peek <.Cache.peek>` methods of :class:`Cache
-<.Cache>` objects but never evict or expire items.
+<diskcache_community.Deque>` objects use the :meth:`push <.Cache.push>`,
+:meth:`pull <.Cache.pull>`, and :meth:`peek <.Cache.peek>` methods of
+:class:`Cache <.Cache>` objects but never evict or expire items.
 
-    >>> from diskcache import Deque
+    >>> from diskcache_community import Deque
     >>> deque = Deque(range(5, 10))
     >>> deque.pop()
     9
@@ -620,25 +634,26 @@ access and editing at both front and back sides. :class:`Deque
     >>> list(thing)
     ['c', 'd', 'e']
 
-:class:`Deque <diskcache.Deque>` objects provide an efficient and safe means of
-cross-thread and cross-process communication. :class:`Deque <diskcache.Deque>`
-objects are also useful in scenarios where contents should remain persistent or
-limitations prohibit holding all items in memory at the same time. The deque
-uses a fixed amount of memory regardless of the size or number of items stored
-inside it.
+:class:`Deque <diskcache_community.Deque>` objects provide an efficient and
+safe means of cross-thread and cross-process communication. :class:`Deque
+<diskcache_community.Deque>` objects are also useful in scenarios where
+contents should remain persistent or limitations prohibit holding all items in
+memory at the same time. The deque uses a fixed amount of memory regardless of
+the size or number of items stored inside it.
 
 Index
 -----
 
-:class:`diskcache.Index` uses a :class:`Cache <diskcache.Cache>` to provide a
-`mutable mapping
+:class:`diskcache_community.Index` uses a :class:`Cache
+<diskcache_community.Cache>` to provide a `mutable mapping
 <https://docs.python.org/3/library/collections.abc.html#collections-abstract-base-classes>`_
 and `ordered dictionary
 <https://docs.python.org/3/library/collections.html#collections.OrderedDict>`_
-interface. :class:`Index <diskcache.Index>` objects inherit all the benefits of
-:class:`Cache <diskcache.Cache>` objects but never evict or expire items.
+interface. :class:`Index <diskcache_community.Index>` objects inherit all the
+benefits of :class:`Cache <diskcache_community.Cache>` objects but never evict
+or expire items.
 
-    >>> from diskcache import Index
+    >>> from diskcache_community import Index
     >>> index = Index([('a', 1), ('b', 2), ('c', 3)])
     >>> 'b' in index
     True
@@ -653,12 +668,12 @@ interface. :class:`Index <diskcache.Index>` objects inherit all the benefits of
     >>> other.popitem(last=False)
     ('b', 2)
 
-:class:`Index <diskcache.Index>` objects provide an efficient and safe means of
-cross-thread and cross-process communication. :class:`Index <diskcache.Index>`
-objects are also useful in scenarios where contents should remain persistent or
-limitations prohibit holding all items in memory at the same time. The index
-uses a fixed amount of memory regardless of the size or number of items stored
-inside it.
+:class:`Index <diskcache_community.Index>` objects provide an efficient and
+safe means of cross-thread and cross-process communication. :class:`Index
+<diskcache_community.Index>` objects are also useful in scenarios where
+contents should remain persistent or limitations prohibit holding all items in
+memory at the same time. The index uses a fixed amount of memory regardless of
+the size or number of items stored inside it.
 
 .. _tutorial-transactions:
 
@@ -743,32 +758,32 @@ Settings
 --------
 
 A variety of settings are available to improve performance. These values are
-stored in the database for durability and to communicate between
-processes. Each value is cached in an attribute with matching name. Attributes
-are updated using :meth:`reset <diskcache.Cache.reset>`. Attributes are set
+stored in the database for durability and to communicate between processes.
+Each value is cached in an attribute with matching name. Attributes are updated
+using :meth:`reset <diskcache_community.Cache.reset>`. Attributes are set
 during initialization when passed as keyword arguments.
 
 * `size_limit`, default one gigabyte. The maximum on-disk size of the cache.
 * `cull_limit`, default ten. The maximum number of keys to cull when adding a
   new item. Set to zero to disable automatic culling. Some systems may disable
   automatic culling in exchange for a cron-like job that regularly calls
-  :meth:`cull <diskcache.Cache.cull>` in a separate process.
+  :meth:`cull <diskcache_community.Cache.cull>` in a separate process.
 * `statistics`, default False, disabled. The setting to collect :ref:`cache
   statistics <tutorial-statistics>`.
 * `tag_index`, default False, disabled. The setting to create a database
   :ref:`tag index <tutorial-tag-index>` for :meth:`evict
-  <diskcache.Cache.evict>`.
+  <diskcache_community.Cache.evict>`.
 * `eviction_policy`, default "least-recently-stored". The setting to determine
   :ref:`eviction policy <tutorial-eviction-policies>`.
 
-The :meth:`reset <diskcache.FanoutCache.reset>` method accepts an optional
-second argument that updates the corresponding value in the database. The
-return value is the latest retrieved from the database. Notice that attributes
-are updated lazily. Prefer idioms like :meth:`len
-<diskcache.FanoutCache.__len__>`, :meth:`volume
-<diskcache.FanoutCache.volume>`, and :meth:`keyword arguments
-<diskcache.FanoutCache.__init__>` rather than using :meth:`reset
-<diskcache.FanoutCache.reset>` directly.
+The :meth:`reset <diskcache_community.FanoutCache.reset>` method accepts an
+optional second argument that updates the corresponding value in the database.
+The return value is the latest retrieved from the database. Notice that
+attributes are updated lazily. Prefer idioms like :meth:`len
+<diskcache_community.FanoutCache.__len__>`, :meth:`volume
+<diskcache_community.FanoutCache.volume>`, and :meth:`keyword arguments
+<diskcache_community.FanoutCache.__init__>` rather than using :meth:`reset
+<diskcache_community.FanoutCache.reset>` directly.
 
     >>> cache = Cache(size_limit=int(4e9))
     >>> print(cache.size_limit)
@@ -787,7 +802,7 @@ are updated lazily. Prefer idioms like :meth:`len
 More settings correspond to :ref:`Disk <tutorial-disk>` attributes. Each of
 these may be specified when initializing the :ref:`Cache
 <tutorial-cache>`. Changing these values will update the unprefixed attribute
-on the :class:`Disk <diskcache.Disk>` object.
+on the :class:`Disk <diskcache_community.Disk>` object.
 
 * `disk_min_file_size`, default 32 kilobytes. The minimum size to store a value
   in a file.
@@ -805,9 +820,9 @@ pragma documentation`_ for more details.
 * `sqlite_synchronous`, default 1, "NORMAL".
 
 Each of these settings can passed to :class:`DjangoCache
-<diskcache.DjangoCache>` via the ``OPTIONS`` key mapping. Always measure before
-and after changing the default values. Default settings are programmatically
-accessible at :data:`diskcache.DEFAULT_SETTINGS`.
+<diskcache_community.DjangoCache>` via the ``OPTIONS`` key mapping. Always
+measure before and after changing the default values. Default settings are
+programmatically accessible at :data:`diskcache_community.DEFAULT_SETTINGS`.
 
 .. _`SQLite pragma documentation`: https://www.sqlite.org/pragma.html
 
@@ -859,16 +874,16 @@ to initialize the cache.
 Disk
 ----
 
-:class:`diskcache.Disk` objects are responsible for serializing and
+:class:`diskcache_community.Disk` objects are responsible for serializing and
 deserializing data stored in the cache. Serialization behavior differs between
 keys and values. In particular, keys are always stored in the cache metadata
 database while values are sometimes stored separately in files.
 
-To customize serialization, you may pass in a :class:`Disk <diskcache.Disk>`
-subclass to initialize the cache. All clients accessing the cache are expected
-to use the same serialization. The default implementation uses Pickle and the
-example below uses compressed JSON, available for convenience as
-:class:`JSONDisk <diskcache.JSONDisk>`.
+To customize serialization, you may pass in a :class:`Disk
+<diskcache_community.Disk>` subclass to initialize the cache. All clients
+accessing the cache are expected to use the same serialization. The default
+implementation uses Pickle and the example below uses compressed JSON,
+available for convenience as :class:`JSONDisk <diskcache_community.JSONDisk>`.
 
 .. code-block:: python
 
@@ -912,11 +927,12 @@ will require identical types.
 SafeDisk
 ........
 
-The default :class:`Disk <diskcache.Disk>` reads pickled keys and values back
-with :func:`pickle.load`, which runs whatever code a pickle asks for. Anyone
-who can write into the cache directory can therefore run code in every
-process that reads from it (CVE-2025-69872). :class:`SafeDisk
-<diskcache.SafeDisk>` keeps the same on-disk format but closes that path:
+The default :class:`Disk <diskcache_community.Disk>` reads pickled keys and
+values back with :func:`pickle.load`, which runs whatever code a pickle asks
+for. Anyone who can write into the cache directory can therefore run code in
+every process that reads from it (CVE-2025-69872). :class:`SafeDisk
+<diskcache_community.SafeDisk>` keeps the same on-disk format but closes that
+path:
 
 * Pickles are read with an unpickler that resolves only an allowlist of
   standard-library constructors: ``None``, ``bool``, ``int``, ``float``,
@@ -935,30 +951,32 @@ that opens the directory chooses for itself:
 
 .. code-block:: python
 
-    from diskcache import Cache, Deque, FanoutCache, Index, SafeDisk
+    from diskcache_community import Cache, Deque, FanoutCache, Index, SafeDisk
 
     cache = Cache('/tmp/mycache', disk=SafeDisk)
     fanout = FanoutCache('/tmp/myfanout', disk=SafeDisk)
     deque = Deque(directory='/tmp/mydeque', disk=SafeDisk)
     index = Index('/tmp/myindex', disk=SafeDisk)
 
-For :class:`DjangoCache <diskcache.DjangoCache>`, set ``'DISK':
-'diskcache.SafeDisk'`` next to ``SHARDS`` and ``DATABASE_TIMEOUT`` in the
-``CACHES`` setting. Sub-containers created through :meth:`FanoutCache.cache
-<diskcache.FanoutCache.cache>`, :meth:`deque <diskcache.FanoutCache.deque>`
-and :meth:`index <diskcache.FanoutCache.index>` use the fanout cache's disk
-unless given their own.
+For :class:`DjangoCache <diskcache_community.DjangoCache>`, set ``'DISK':
+'diskcache_community.SafeDisk'`` next to ``SHARDS`` and ``DATABASE_TIMEOUT`` in
+the ``CACHES`` setting. Sub-containers created through :meth:`FanoutCache.cache
+<diskcache_community.FanoutCache.cache>`, :meth:`deque
+<diskcache_community.FanoutCache.deque>` and :meth:`index
+<diskcache_community.FanoutCache.index>` use the fanout cache's disk unless
+given their own.
 
-A directory written with :class:`SafeDisk <diskcache.SafeDisk>` opens with the
-default :class:`Disk <diskcache.Disk>` and the reverse, as long as the values
-are within the allowlist. Some uses need the default :class:`Disk
-<diskcache.Disk>` because their objects are outside it: instances of your own
-classes, Django model instances and ``HttpResponse`` objects, datetimes whose
-``tzinfo`` is a ``zoneinfo.ZoneInfo`` rather than a ``datetime.timezone``, and
-:meth:`memoize <diskcache.Cache.memoize>` with ``typed=True``, which puts
-``type`` objects into the cache key. Every process that writes to a shared
-directory with the default :class:`Disk <diskcache.Disk>` must be trusted, and
-a reader using :class:`SafeDisk <diskcache.SafeDisk>` raises
+A directory written with :class:`SafeDisk <diskcache_community.SafeDisk>` opens
+with the default :class:`Disk <diskcache_community.Disk>` and the reverse, as
+long as the values are within the allowlist. Some uses need the default
+:class:`Disk <diskcache_community.Disk>` because their objects are outside it:
+instances of your own classes, Django model instances and ``HttpResponse``
+objects, datetimes whose ``tzinfo`` is a ``zoneinfo.ZoneInfo`` rather than a
+``datetime.timezone``, and :meth:`memoize <diskcache_community.Cache.memoize>`
+with ``typed=True``, which puts ``type`` objects into the cache key. Every
+process that writes to a shared directory with the default :class:`Disk
+<diskcache_community.Disk>` must be trusted, and a reader using
+:class:`SafeDisk <diskcache_community.SafeDisk>` raises
 :exc:`pickle.UnpicklingError` on those rows.
 
 .. _tutorial-read-only:
@@ -986,27 +1004,27 @@ directory:
     >>> snapshot['key']
     'value'
 
-Reads, iteration, ``len``, :meth:`volume <diskcache.Cache.volume>`,
-:meth:`check <diskcache.Cache.check>`, memoized calls that hit and the
-read-only methods of :class:`FanoutCache <diskcache.FanoutCache>`,
-:class:`Deque <diskcache.Deque>` and :class:`Index <diskcache.Index>` all
-work. Every method that would write raises :exc:`ReadOnlyError
-<diskcache.ReadOnlyError>`, a subclass of :exc:`sqlite3.OperationalError`,
-before anything is written:
+Reads, iteration, ``len``, :meth:`volume <diskcache_community.Cache.volume>`,
+:meth:`check <diskcache_community.Cache.check>`, memoized calls that hit and
+the read-only methods of :class:`FanoutCache
+<diskcache_community.FanoutCache>`, :class:`Deque <diskcache_community.Deque>`
+and :class:`Index <diskcache_community.Index>` all work. Every method that
+would write raises :exc:`ReadOnlyError <diskcache_community.ReadOnlyError>`, a
+subclass of :exc:`sqlite3.OperationalError`, before anything is written:
 
-    >>> snapshot['other'] = 'value'
+    >>> snapshot['other'] = 'value'  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    diskcache.core.ReadOnlyError: cache in '/tmp/mycachedir' is read-only
+    ReadOnlyError: cache in '/tmp/mycachedir' is read-only
     >>> snapshot.close()
 
-A read-only cache cannot record hits, misses or access times, so
-:meth:`stats <diskcache.Cache.stats>` returns the stored counters without
-enabling or resetting them, the ``least-recently-used`` and
-``least-frequently-used`` policies read without updating, and expired items
-are skipped instead of removed. The ``read_only`` argument is not a setting
-and is never persisted; passing it through ``FanoutCache(directory,
-read_only=True)`` or the Django ``OPTIONS`` works the same way.
+A read-only cache cannot record hits, misses or access times, so :meth:`stats
+<diskcache_community.Cache.stats>` returns the stored counters without enabling
+or resetting them, the ``least-recently-used`` and ``least-frequently-used``
+policies read without updating, and expired items are skipped instead of
+removed. The ``read_only`` argument is not a setting and is never persisted;
+passing it through ``FanoutCache(directory, read_only=True)`` or the Django
+``OPTIONS`` works the same way.
 
 Two details of the file system. When the directory is writable, SQLite may
 create the ``cache.db-shm`` and ``cache.db-wal`` files next to a read-only
@@ -1020,19 +1038,20 @@ Caveats
 Though :doc:`DiskCache <index>` has a dictionary-like interface, Python's `hash
 protocol`_ is not used. Neither the `__hash__` nor `__eq__` methods are used
 for lookups. Instead lookups depend on the serialization method defined by
-:class:`Disk <diskcache.Disk>` objects. For strings, bytes, integers, and
-floats, equality matches Python's definition. But large integers and all other
-types will be converted to bytes and the bytes representation will define
+:class:`Disk <diskcache_community.Disk>` objects. For strings, bytes, integers,
+and floats, equality matches Python's definition. But large integers and all
+other types will be converted to bytes and the bytes representation will define
 equality.
 
-The default :class:`diskcache.Disk` serialization uses pickling for both keys
-and values. Unfortunately, pickling produces inconsistencies sometimes when
-applied to container data types like tuples. Two equal tuples may serialize to
-different bytes objects using pickle. The likelihood of differences is reduced
-by using `pickletools.optimize` but still inconsistencies occur (`#54`_). The
-inconsistent serialized pickle values is particularly problematic when applied
-to the key in the cache. Consider using an alternative Disk type, like
-:class:`JSONDisk <diskcache.JSONDisk>`, for consistent serialization of keys.
+The default :class:`diskcache_community.Disk` serialization uses pickling for
+both keys and values. Unfortunately, pickling produces inconsistencies
+sometimes when applied to container data types like tuples. Two equal tuples
+may serialize to different bytes objects using pickle. The likelihood of
+differences is reduced by using `pickletools.optimize` but still
+inconsistencies occur (`#54`_). The inconsistent serialized pickle values is
+particularly problematic when applied to the key in the cache. Consider using
+an alternative Disk type, like :class:`JSONDisk
+<diskcache_community.JSONDisk>`, for consistent serialization of keys.
 
 SQLite is used to synchronize database access between threads and processes and
 as such inherits all SQLite caveats. Most notably SQLite is `not recommended`_
@@ -1060,11 +1079,11 @@ thread-pool executor asynchronously. For example::
 
     asyncio.run(set_async('test-key', 'test-value'))
 
-The cache :meth:`volume <diskcache.Cache.volume>` is based on the size of the
-database that stores metadata and the size of the values stored in files. It
-does not account the size of directories themselves or other filesystem
-metadata. If directory count or size is a concern then consider implementing an
-alternative :class:`Disk <diskcache.Disk>`.
+The cache :meth:`volume <diskcache_community.Cache.volume>` is based on the
+size of the database that stores metadata and the size of the values stored in
+files. It does not account the size of directories themselves or other
+filesystem metadata. If directory count or size is a concern then consider
+implementing an alternative :class:`Disk <diskcache_community.Disk>`.
 
 .. _`#54`: https://github.com/grantjenks/python-diskcache/issues/54
 .. _`hash protocol`: https://docs.python.org/library/functions.html#hash

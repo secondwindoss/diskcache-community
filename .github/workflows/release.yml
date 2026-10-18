@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Check that the tag matches diskcache.__version__
+      - name: Check that the tag matches diskcache_community.__version__
         if: github.ref_type == 'tag'
         run: |
           python - <<'PY'
@@ -27,7 +27,7 @@ jobs:
           import re
           import sys
 
-          text = open('diskcache/__init__.py', encoding='utf-8').read()
+          text = open('diskcache_community/__init__.py', encoding='utf-8').read()
           version = re.search(r"^__version__ = '([^']+)'", text, re.M).group(1)
           tag = os.environ['GITHUB_REF_NAME']
           if tag != 'v' + version:
@@ -45,7 +45,7 @@ jobs:
         run: |
           python -m venv check
           check/bin/pip install -q "${{ github.workspace }}"/dist/*.whl
-          check/bin/python -W error -c "import diskcache; print(diskcache.__title__, diskcache.__version__)"
+          check/bin/python -W error -c "import diskcache_community as diskcache; print(diskcache.__title__, diskcache.__version__)"
       - uses: actions/upload-artifact@v7
         with:
           name: dist

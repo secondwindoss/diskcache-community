@@ -147,18 +147,53 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
-      - name: Install diskcache
+      - name: Install diskcache-community
         run: pip install .
-      - name: Import diskcache without Django installed
+      - name: Import diskcache_community without Django installed
         working-directory: ${{ runner.temp }}
         run: |
           python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('django') is not None)"
-          python -W error -c "import diskcache; assert 'DjangoCache' not in diskcache.__all__, diskcache.__all__; print('diskcache', diskcache.__version__, 'imported without Django')"
+          python -W error -c "import diskcache_community as dc; assert 'DjangoCache' not in dc.__all__, dc.__all__; print('diskcache_community', dc.__version__, 'imported without Django')"
+
+  coexist:
+    name: next to upstream diskcache 5.6.3
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DJANGO_SETTINGS_MODULE: tests.settings
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install diskcache-community and upstream diskcache 5.6.3 together
+        run: pip install . "diskcache==5.6.3" "django==5.2.*" pytest pytest-cov pytest-django pytest-xdist
+      - name: Create a separate environment with only diskcache 5.6.3
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-563"
+          "$RUNNER_TEMP/venv-563/bin/pip" install "diskcache==5.6.3"
+      - name: Run the coexistence and golden tests in both directions
+        env:
+          DISKCACHE_GOLDEN_563_PYTHON: ${{ runner.temp }}/venv-563/bin/python
+        run: pytest --no-cov -p no:cacheprovider tests/test_init.py tests/test_golden.py
+      - name: Uninstall either distribution and check the other still imports
+        working-directory: ${{ runner.temp }}
+        env:
+          PYTHONPATH: ''
+        run: |
+          pip check
+          pip uninstall -y diskcache
+          python -c "import diskcache_community as dc; print('diskcache_community', dc.__version__)"
+          pip install "diskcache==5.6.3"
+          pip uninstall -y diskcache-community
+          python -c "import diskcache; assert diskcache.__version__ == '5.6.3'; print('diskcache', diskcache.__version__)"
+          python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('diskcache_community') is not None)"
 
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [lint, test, django, sqlite-dqs, no-django]
+    needs: [lint, test, django, sqlite-dqs, no-django, coexist]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job did not succeed

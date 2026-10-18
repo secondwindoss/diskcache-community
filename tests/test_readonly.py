@@ -10,7 +10,7 @@ import tempfile
 
 import pytest
 
-import diskcache as dc
+import diskcache_community as dc
 
 POSIX = os.name != 'nt'
 ROOT = getattr(os, 'geteuid', lambda: 1)() == 0
@@ -371,7 +371,7 @@ def test_read_only_django(directory):
     if not settings.configured:
         pytest.skip('Django settings are not configured')
 
-    from diskcache import DjangoCache
+    from diskcache_community import DjangoCache
 
     cache = DjangoCache(directory, {})
     cache.set('a', 1)

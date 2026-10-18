@@ -5,7 +5,7 @@ $ python -m IPython tests/benchmark_kv_store.py
 
 from IPython import get_ipython
 
-import diskcache
+import diskcache_community as diskcache
 
 ipython = get_ipython()
 assert ipython is not None, 'No IPython! Run with $ ipython ...'

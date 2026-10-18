@@ -1,4 +1,4 @@
-"""Stress test diskcache.core.Cache."""
+"""Stress test diskcache_community.core.Cache."""
 
 import multiprocessing as mp
 import os
@@ -10,7 +10,11 @@ import threading
 import time
 import warnings
 
-from diskcache import EmptyDirWarning, FanoutCache, UnknownFileWarning
+from diskcache_community import (
+    EmptyDirWarning,
+    FanoutCache,
+    UnknownFileWarning,
+)
 
 from .utils import display
 

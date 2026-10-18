@@ -102,8 +102,8 @@ Timings for diskcache.FanoutCache(shards=8, timeout=0.010)
 ========= ========= ========= ========= ========= ========= ========= =========
 
 Notice the low overhead of the :class:`FanoutCache
-<diskcache.FanoutCache>`. Increasing the number of shards from four to eight
-has a negligible impact on performance.
+<diskcache_community.FanoutCache>`. Increasing the number of shards from four
+to eight has a negligible impact on performance.
 
 ========= ========= ========= ========= ========= ========= ========= =========
 Timings for pylibmc.Client
@@ -163,7 +163,8 @@ Delete
 .. image:: _static/core-p8-delete.png
 
 Again deletes require writes to disk. Only the :class:`FanoutCache
-<diskcache.FanoutCache>` performs well with one shard allocated per worker.
+<diskcache_community.FanoutCache>` performs well with one shard allocated per
+worker.
 
 Timing Data
 ...........
@@ -184,7 +185,7 @@ Timings for diskcache.Cache
 
 Notice the unacceptably high maximum store and delete latency. Without
 sharding, cache writers block each other. By default :class:`Cache
-<diskcache.Cache>` objects raise a timeout error after sixty seconds.
+<diskcache_community.Cache>` objects raise a timeout error after sixty seconds.
 
 ========= ========= ========= ========= ========= ========= ========= =========
 Timings for diskcache.FanoutCache(shards=4, timeout=1.0)
@@ -197,7 +198,7 @@ Timings for diskcache.FanoutCache(shards=4, timeout=1.0)
     Total    791992                                                    72.634s
 ========= ========= ========= ========= ========= ========= ========= =========
 
-Here :class:`FanoutCache <diskcache.FanoutCache>` uses four shards to
+Here :class:`FanoutCache <diskcache_community.FanoutCache>` uses four shards to
 distribute writes. That reduces the maximum latency by a factor of ten. Note
 the miss rate is variable due to the interleaved operations of concurrent
 workers.
@@ -232,9 +233,9 @@ Timings for pylibmc.Client
 
 Memcached performance is low latency and stable even under heavy load. Notice
 that cache gets are three times slower in total as compared with
-:class:`FanoutCache <diskcache.FanoutCache>`. The superior performance of get
-operations put the overall performance of :doc:`DiskCache <index>` ahead of
-Memcached.
+:class:`FanoutCache <diskcache_community.FanoutCache>`. The superior
+performance of get operations put the overall performance of :doc:`DiskCache
+<index>` ahead of Memcached.
 
 ========= ========= ========= ========= ========= ========= ========= =========
 Timings for redis.StrictRedis

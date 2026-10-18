@@ -6,7 +6,7 @@ import multiprocessing as mp
 import shutil
 import time
 
-import diskcache as dc
+import diskcache_community as dc
 
 from .utils import secs
 

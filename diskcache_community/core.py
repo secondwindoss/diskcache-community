@@ -390,7 +390,7 @@ class Disk:
         The default implementation ignores the `key` and `value` parameters.
 
         In some scenarios, for example :meth:`Cache.push
-        <diskcache.Cache.push>`, the `key` or `value` may not be known when the
+        <diskcache_community.Cache.push>`, the `key` or `value` may not be known when the
         item is stored in the cache.
 
         :param key: key for item (default UNKNOWN)
@@ -1081,7 +1081,9 @@ class Cache:
         try:
             assert issubclass(disk, Disk)
         except (TypeError, AssertionError):
-            raise ValueError('disk must subclass diskcache.Disk') from None
+            raise ValueError(
+                'disk must subclass diskcache_community.Disk'
+            ) from None
 
         if directory is None:
             directory = tempfile.mkdtemp(prefix='diskcache-')
@@ -2645,7 +2647,7 @@ class Cache:
         attribute. This is useful for introspection, for bypassing the cache,
         or for rewrapping the function with a different cache.
 
-        >>> from diskcache import Cache
+        >>> from diskcache_community import Cache
         >>> cache = Cache()
         >>> @cache.memoize(expire=1, tag='fib')
         ... def fibonacci(number):

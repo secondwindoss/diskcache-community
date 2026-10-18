@@ -2,9 +2,9 @@ DiskCache DjangoCache Benchmarks
 ================================
 
 :doc:`DiskCache <index>` provides a Django-compatible cache API in
-:class:`diskcache.DjangoCache`. A discussion of its options and abilities are
-described in the :doc:`tutorial <tutorial>`. Here we try to assess its
-performance compared to other Django cache backends.
+:class:`diskcache_community.DjangoCache`. A discussion of its options and
+abilities are described in the :doc:`tutorial <tutorial>`. Here we try to
+assess its performance compared to other Django cache backends.
 
 Keys and Values
 ---------------
@@ -102,9 +102,9 @@ Get
 
 .. image:: _static/djangocache-get.png
 
-Under heavy load, :class:`DjangoCache <diskcache.DjangoCache>` gets are low
-latency. At the 99th percentile they are on par with the Memcached cache
-backend.
+Under heavy load, :class:`DjangoCache <diskcache_community.DjangoCache>` gets
+are low latency. At the 99th percentile they are on par with the Memcached
+cache backend.
 
 Set
 ...
@@ -121,9 +121,9 @@ Delete
 .. image:: _static/djangocache-delete.png
 
 Like sets, deletes require writes to disk. Though :class:`DjangoCache
-<diskcache.DjangoCache>` is the slowest, it remains competitive with latency
-less than five milliseconds. Remember that unlike Local-memory, Memached, and
-Redis, it persists all cached data.
+<diskcache_community.DjangoCache>` is the slowest, it remains competitive with
+latency less than five milliseconds. Remember that unlike Local-memory,
+Memached, and Redis, it persists all cached data.
 
 Timing Data
 ...........
@@ -185,12 +185,12 @@ Timings for diskcache
     Total    791992                                                    67.842s
 ========= ========= ========= ========= ========= ========= ========= =========
 
-:class:`DjangoCache <diskcache.DjangoCache>` defaults to using eight shards
-with a 10 millisecond timeout. Notice that cache get operations are in
+:class:`DjangoCache <diskcache_community.DjangoCache>` defaults to using eight
+shards with a 10 millisecond timeout. Notice that cache get operations are in
 aggregate more than twice as fast as Memcached. And total cache time for all
 operations is comparable. The higher set and delete latencies are due to the
-retry behavior of :class:`DjangoCache <diskcache.DjangoCache>` objects. If
-lower latency is required then the retry behavior can be disabled.
+retry behavior of :class:`DjangoCache <diskcache_community.DjangoCache>`
+objects. If lower latency is required then the retry behavior can be disabled.
 
 ========= ========= ========= ========= ========= ========= ========= =========
 Timings for filebased
@@ -205,4 +205,5 @@ Timings for filebased
 
 Notice the higher cache miss rate. That's a result of the cache's random
 culling strategy. Get and set operations also take three to twenty times longer
-in aggregate as compared with :class:`DjangoCache <diskcache.DjangoCache>`.
+in aggregate as compared with :class:`DjangoCache
+<diskcache_community.DjangoCache>`.

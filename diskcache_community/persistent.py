@@ -85,7 +85,7 @@ class Deque(Sequence):
         :param directory: deque directory (default None)
         :param maxlen: max length (default None, no max)
         :param disk: `Disk` type or subclass for serialization (default
-            :class:`Disk <diskcache.Disk>`)
+            :class:`Disk <diskcache_community.Disk>`)
 
         """
         self._cache = Cache(directory, disk=disk, eviction_policy='none')
@@ -659,7 +659,7 @@ class Deque(Sequence):
 
         Transactions may be nested and may not be shared between threads.
 
-        >>> from diskcache import Deque
+        >>> from diskcache_community import Deque
         >>> deque = Deque()
         >>> deque += range(5)
         >>> with deque.transact():  # Atomically rotate elements.
@@ -704,7 +704,7 @@ class Index(MutableMapping):
         Optional first argument may be string specifying directory where items
         are stored. When None or not given, temporary directory is created.
 
-        The keyword argument `disk` selects the :class:`Disk <diskcache.Disk>`
+        The keyword argument `disk` selects the :class:`Disk <diskcache_community.Disk>`
         type or subclass used for serialization. Every other keyword argument
         is stored as an item, so an item named ``disk`` has to be set after
         initialization.
@@ -1177,7 +1177,7 @@ class Index(MutableMapping):
         attribute. This is useful for introspection, for bypassing the cache,
         or for rewrapping the function with a different cache.
 
-        >>> from diskcache import Index
+        >>> from diskcache_community import Index
         >>> mapping = Index()
         >>> @mapping.memoize()
         ... def fibonacci(number):
@@ -1227,7 +1227,7 @@ class Index(MutableMapping):
 
         Transactions may be nested and may not be shared between threads.
 
-        >>> from diskcache import Index
+        >>> from diskcache_community import Index
         >>> mapping = Index()
         >>> with mapping.transact():  # Atomically increment two keys.
         ...     mapping['total'] = mapping.get('total', 0) + 123.4

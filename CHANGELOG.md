@@ -13,6 +13,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Packaging
 
+- **Breaking:** the package is imported as `diskcache_community` instead of `diskcache`, so it installs next to the upstream `diskcache` distribution without overwriting it, and a project can move to the fork while other dependencies still require `diskcache`. The public API, the `cache.db` schema, the file layout and the serialization are unchanged, so cache directories are shared with 5.6.3 in both directions. Django settings name `diskcache_community.DjangoCache` and `diskcache_community.SafeDisk`. The import-time warning about an upstream `diskcache` installed in the same environment is gone, and a CI job installs both distributions together, runs the golden tests in both directions and checks that uninstalling either leaves the other working (PR #22).
 - `LICENSE` now holds the full Apache License 2.0 text instead of the short boilerplate notice, so GitHub and package indexes detect the license; the copyright and fork notice stay in `NOTICE` (PR #21).
 
 ## 5.7.0 (2026-10-11)

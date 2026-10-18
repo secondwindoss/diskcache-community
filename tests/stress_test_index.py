@@ -1,10 +1,10 @@
-"""Stress test diskcache.persistent.Index."""
+"""Stress test diskcache_community.persistent.Index."""
 
 import collections as co
 import itertools as it
 import random
 
-import diskcache as dc
+import diskcache_community as dc
 
 KEYS = 100
 OPERATIONS = 25000

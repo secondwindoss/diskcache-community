@@ -30,7 +30,7 @@ regenerates the page with a consistently slow latency.
 .. code-block:: python
    :emphasize-lines: 5
 
-   import diskcache as dc
+   import diskcache_community as dc
 
    cache = dc.Cache()
 

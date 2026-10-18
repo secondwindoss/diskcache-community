@@ -1,4 +1,4 @@
-"""Test diskcache.persistent.Index."""
+"""Test diskcache_community.persistent.Index."""
 
 import pickle
 import shutil
@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-import diskcache as dc
+import diskcache_community as dc
 
 
 def rmdir(directory):

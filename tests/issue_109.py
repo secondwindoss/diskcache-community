@@ -3,7 +3,7 @@
 
 import time
 
-import diskcache as dc
+import diskcache_community as dc
 
 
 def main():

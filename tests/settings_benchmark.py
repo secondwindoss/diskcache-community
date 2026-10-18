@@ -2,7 +2,7 @@ from .settings import *  # noqa
 
 CACHES = {
     'default': {
-        'BACKEND': 'diskcache.DjangoCache',
+        'BACKEND': 'diskcache_community.DjangoCache',
         'LOCATION': CACHE_DIR,  # noqa
     },
     'memcached': {
@@ -33,7 +33,7 @@ CACHES = {
         },
     },
     'diskcache': {
-        'BACKEND': 'diskcache.DjangoCache',
+        'BACKEND': 'diskcache_community.DjangoCache',
         'LOCATION': 'tmp',
     },
 }
