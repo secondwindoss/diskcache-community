@@ -13,6 +13,7 @@ import functools as ft
 import inspect
 import io
 import json
+import logging
 import os
 import os.path as op
 import pathlib
@@ -194,6 +195,8 @@ def _makedirs_private(directory):
 class Disk:
     """Cache key and value serialization for SQLite database and files."""
 
+    on_error = 'raise'
+
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         """Initialize disk instance.
 
@@ -205,6 +208,40 @@ class Disk:
         self._directory = directory
         self.min_file_size = min_file_size
         self.pickle_protocol = pickle_protocol
+
+    @classmethod
+    def with_options(cls, *, on_error):
+        """Return a subclass of this disk type with the given options.
+
+        `on_error` says what a cache does with an entry that it finds but
+        cannot read back: a pickle that is corrupt, refers to a class that no
+        longer exists, or is refused by :class:`SafeDisk`, or a value file
+        that is not valid text. ``'raise'``, the default, raises the error.
+        ``'miss'`` deletes the entry and treats it as missing, so ``get``
+        returns its default and ``cache[key]`` raises :exc:`KeyError`; the
+        first such entry of each cache is logged as a warning on the
+        ``diskcache_community`` logger. A read-only cache returns the default
+        from ``get`` without deleting the entry, while its ``peek`` and
+        ``peekitem`` raise, since they cannot move past it. ``len`` and
+        ``in`` count an unreadable entry until a read deletes it. A missing
+        value file, :exc:`MemoryError` and :exc:`RecursionError` are never
+        treated as unreadable entries. The option is a class attribute and
+        is never persisted.
+
+        >>> MissDisk = Disk.with_options(on_error='miss')
+        >>> MissDisk.on_error
+        'miss'
+
+        :param str on_error: ``'raise'`` or ``'miss'``
+        :return: subclass to pass as ``disk=``
+        :raises ValueError: if `on_error` is not one of the two
+
+        """
+        if on_error not in ('raise', 'miss'):
+            raise ValueError(
+                "on_error must be 'raise' or 'miss', not %r" % (on_error,)
+            )
+        return _derive_disk(cls, {'on_error': on_error})
 
     def hash(self, key):
         """Compute portable hash for `key`.
@@ -990,6 +1027,8 @@ class SafeDisk(Disk):
         super().remove(file_path)
 
 
+_LOGGER = logging.getLogger('diskcache_community')
+
 ENV_DISK = 'DISKCACHE_DISK'
 ENV_SAFE_TYPES = 'DISKCACHE_SAFE_TYPES'
 ENV_SAFE_MODULES = 'DISKCACHE_SAFE_MODULES'
@@ -1424,6 +1463,13 @@ _FORK_GATE = _ForkGate()
 
 # Every live Cache, so a child process can forget inherited connections.
 _CACHES: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
+
+# Caches that have logged an unreadable entry as a warning already.
+_UNREADABLE_LOGGED: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
+
+# Errors that on_error='miss' never treats as an unreadable entry: a missing
+# value file is already a miss, and the others say nothing about the entry.
+_NOT_UNREADABLE = (OSError, MemoryError, RecursionError)
 
 # Connections inherited from a parent process, kept open on purpose.
 _INHERITED_CONNECTIONS: list[sqlite3.Connection] = []
@@ -2331,6 +2377,66 @@ class Cache:
         """
         return self.incr(key, -delta, default, retry)
 
+    def _unreadable(self, error):
+        """Return True when `error`, raised reading an entry, means a miss.
+
+        That is when the disk's `on_error` is ``'miss'``. The first such
+        entry of the cache is logged as a warning and later ones at debug
+        level.
+
+        """
+        if getattr(self._disk, 'on_error', 'raise') != 'miss' or isinstance(
+            error, _NOT_UNREADABLE
+        ):
+            return False
+
+        logged = self in _UNREADABLE_LOGGED
+        _UNREADABLE_LOGGED.add(self)
+        _LOGGER.log(
+            logging.DEBUG if logged else logging.WARNING,
+            'treating an unreadable entry in %r as missing: %s: %s',
+            self._directory,
+            type(error).__name__,
+            error,
+        )
+        return True
+
+    def _remove_unreadable_file(self, filename):
+        """Remove the value file of an unreadable entry.
+
+        A disk may refuse to remove the path, as SafeDisk does for a path
+        outside the cache directory, and that path is then left alone.
+
+        """
+        if filename is not None:
+            with cl.suppress(OSError, ValueError):
+                self._disk.remove(filename)
+
+    def _drop_unreadable(self, rowid, mode, filename, db_value, retry):
+        """Delete the unreadable entry at `rowid` unless it has changed."""
+        if self._read_only:
+            return
+
+        with self._transact(retry) as (sql, _):
+            cursor = sql(
+                'DELETE FROM Cache WHERE rowid = ? AND mode = ?'
+                ' AND filename IS ? AND value IS ?',
+                (rowid, mode, filename, db_value),
+            )
+            deleted = cursor.rowcount
+
+        if deleted:
+            self._remove_unreadable_file(filename)
+
+    def _read_key(self, key, raw):
+        """Return the key of a row, or ENOVAL for one read as a miss."""
+        try:
+            return self._disk.get(key, raw)
+        except Exception as error:  # pylint: disable=broad-except
+            if not self._unreadable(error):
+                raise
+            return ENOVAL
+
     def get(
         self,
         key,
@@ -2407,6 +2513,11 @@ class Cache:
             except IOError:
                 # Key was deleted before we could retrieve result.
                 return default
+            except Exception as error:  # pylint: disable=broad-except
+                if not self._unreadable(error):
+                    raise
+                self._drop_unreadable(rowid, mode, filename, db_value, retry)
+                return default
 
         else:  # Slow path, transaction required.
             cache_hit = (
@@ -2440,6 +2551,15 @@ class Cache:
                     value = self._disk.fetch(mode, filename, db_value, read)
                 except IOError:
                     # Key was deleted before we could retrieve result.
+                    if statistics:
+                        sql(cache_miss)
+                    return default
+                except Exception as error:  # pylint: disable=broad-except
+                    if not self._unreadable(error):
+                        raise
+                    self._drop_unreadable(
+                        rowid, mode, filename, db_value, retry
+                    )
                     if statistics:
                         sql(cache_miss)
                     return default
@@ -2555,6 +2675,12 @@ class Cache:
             value = self._disk.fetch(mode, filename, db_value, False)
         except IOError:
             # Key was deleted before we could retrieve result.
+            return default
+        except Exception as error:  # pylint: disable=broad-except
+            if not self._unreadable(error):
+                raise
+            self._remove_unreadable_file(filename)
+            filename = None
             return default
         finally:
             if filename is not None:
@@ -2828,6 +2954,12 @@ class Cache:
             except IOError:
                 # Key was deleted before we could retrieve result.
                 continue
+            except Exception as error:  # pylint: disable=broad-except
+                if not self._unreadable(error):
+                    raise
+                self._remove_unreadable_file(name)
+                name = None
+                continue
             finally:
                 if name is not None:
                     self._disk.remove(name)
@@ -2945,6 +3077,11 @@ class Cache:
             except IOError:
                 # Key was deleted before we could retrieve result.
                 continue
+            except Exception as error:  # pylint: disable=broad-except
+                if self._read_only or not self._unreadable(error):
+                    raise
+                self._drop_unreadable(rowid, mode, name, db_value, retry)
+                continue
             break
 
         if expire_time and tag:
@@ -3019,12 +3156,16 @@ class Cache:
                     else:
                         break
 
-            key = self._disk.get(db_key, raw)
-
             try:
+                key = self._disk.get(db_key, raw)
                 value = self._disk.fetch(mode, name, db_value, False)
             except IOError:
                 # Key was deleted before we could retrieve result.
+                continue
+            except Exception as error:  # pylint: disable=broad-except
+                if self._read_only or not self._unreadable(error):
+                    raise
+                self._drop_unreadable(rowid, mode, name, db_value, retry)
                 continue
             break
 
@@ -3485,7 +3626,7 @@ class Cache:
         """
         sql = self._sql
         limit = 100
-        _disk_get = self._disk.get
+        _read_key = self._read_key
         select = 'SELECT key, raw FROM Cache'
         args = ()
 
@@ -3513,7 +3654,9 @@ class Cache:
         else:
             return
 
-        yield _disk_get(key, raw)
+        result = _read_key(key, raw)
+        if result is not ENOVAL:
+            yield result
 
         while True:
             rows = sql(iterate, args + (key, raw, key, limit)).fetchall()
@@ -3522,7 +3665,9 @@ class Cache:
                 break
 
             for key, raw in rows:
-                yield _disk_get(key, raw)
+                result = _read_key(key, raw)
+                if result is not ENOVAL:
+                    yield result
 
     def _iter(self, ascending=True):
         sql = self._sql
@@ -3535,7 +3680,7 @@ class Cache:
 
         bound = max_rowid + 1
         limit = 100
-        _disk_get = self._disk.get
+        _read_key = self._read_key
         rowid = 0 if ascending else bound
         select = (
             'SELECT rowid, key, raw FROM Cache'
@@ -3555,7 +3700,9 @@ class Cache:
                 break
 
             for rowid, key, raw in rows:
-                yield _disk_get(key, raw)
+                result = _read_key(key, raw)
+                if result is not ENOVAL:
+                    yield result
 
     def __iter__(self):
         """Iterate keys in cache including expired items."""
