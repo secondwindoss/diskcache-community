@@ -21,7 +21,9 @@ Install it with pip and import ``diskcache_community`` where you imported
 
     $ pip install diskcache-community
 
-Start with the :doc:`tutorial` and keep the :doc:`api` at hand. The
+Coming from diskcache 5.6.3, read :doc:`migrating`; to close the pickle
+vulnerability, read :doc:`fix-cve-2025-69872`. Then start with the
+:doc:`tutorial` and keep the :doc:`api` at hand. The
 :doc:`benchmarks` compare DiskCache with memcached, Redis, lmdb and other
 stores, and the fork with diskcache 5.6.3.
 
@@ -29,6 +31,8 @@ stores, and the fork with diskcache 5.6.3.
    :maxdepth: 1
    :titlesonly:
 
+   fix-cve-2025-69872
+   migrating
    tutorial
    benchmarks
    cache-benchmarks

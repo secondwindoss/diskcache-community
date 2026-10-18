@@ -34,7 +34,8 @@
 > next to the upstream `diskcache` package. It carries the fix path for
 > [CVE-2025-69872](https://github.com/advisories/GHSA-w8v5-vhqr-4h9v) and
 > reads and writes the same cache directories as 5.6.3.
-> See [Why this fork](#why-this-fork) and [Migrating from diskcache](#migrating-from-diskcache).
+> See [Why this fork](#why-this-fork), [Migrating from diskcache](#migrating-from-diskcache)
+> and [Fix CVE-2025-69872 in diskcache](https://diskcache-community.readthedocs.io/en/latest/fix-cve-2025-69872.html).
 
 ## Install
 
@@ -98,6 +99,10 @@ from diskcache_community import Cache, SafeDisk
 cache = Cache('cache', disk=SafeDisk)
 ```
 
+[Fix CVE-2025-69872 in diskcache](https://diskcache-community.readthedocs.io/en/latest/fix-cve-2025-69872.html) covers caches
+that libraries create for you, your own classes, and entries already in the
+cache.
+
 ## Features
 
 - `Cache`, `FanoutCache` and `DjangoCache` for key-value caching with
@@ -156,6 +161,9 @@ In Django settings, use `'diskcache_community.DjangoCache'` and
 `'diskcache_community.SafeDisk'`. Existing cache directories open as they
 are, and a 5.6.3 process still opens directories written by the fork.
 
+The [migration guide](https://diskcache-community.readthedocs.io/en/latest/migrating.html) lists the few behaviour changes
+since 5.6.3 and how to go back.
+
 The upstream `diskcache` package can stay installed, for example when another
 dependency requires it. Each library uses the package it imports. A library
 that wants to support both can import whichever is present:
@@ -172,6 +180,8 @@ except ImportError:
 The documentation is at
 [diskcache-community.readthedocs.io](https://diskcache-community.readthedocs.io/en/latest/):
 
+- [Fix CVE-2025-69872 in diskcache](https://diskcache-community.readthedocs.io/en/latest/fix-cve-2025-69872.html)
+- [Migrating from diskcache 5.6.3](https://diskcache-community.readthedocs.io/en/latest/migrating.html)
 - [Tutorial](https://diskcache-community.readthedocs.io/en/latest/tutorial.html)
 - [API reference](https://diskcache-community.readthedocs.io/en/latest/api.html)
 - [Benchmarks](https://diskcache-community.readthedocs.io/en/latest/benchmarks.html)
