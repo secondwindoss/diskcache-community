@@ -132,7 +132,7 @@ CACHE_DIR = os.path.join(
 
 CACHES = {
     'default': {
-        'BACKEND': 'diskcache.DjangoCache',
+        'BACKEND': 'diskcache_community.DjangoCache',
         'LOCATION': CACHE_DIR,
     },
 }

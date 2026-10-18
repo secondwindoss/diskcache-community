@@ -1,8 +1,8 @@
 """Write the golden fixture caches and pack them into the archive.
 
 Run this with an interpreter whose ``diskcache`` is the upstream 5.6.3 wheel,
-from a working directory outside the repository, so that the repository's
-``diskcache/`` source tree does not shadow the wheel::
+from a working directory outside the repository, so that the repository
+cannot shadow the wheel::
 
     $ cd /tmp
     $ /path/to/venv-5.6.3/bin/python -I \\
@@ -28,7 +28,10 @@ import tempfile
 import time
 from pathlib import Path
 
-import diskcache
+if __name__ == '__main__':
+    import diskcache
+else:
+    import diskcache_community as diskcache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:

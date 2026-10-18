@@ -36,7 +36,7 @@ Tracker = "https://github.com/secondwindoss/diskcache-community/issues"
 Upstream = "https://github.com/grantjenks/python-diskcache"
 
 [tool.setuptools]
-packages = ["diskcache"]
+packages = ["diskcache_community"]
 
 [tool.setuptools.dynamic]
-version = { attr = "diskcache.__version__" }
+version = { attr = "diskcache_community.__version__" }

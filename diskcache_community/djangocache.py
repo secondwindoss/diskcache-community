@@ -23,9 +23,9 @@ class DjangoCache(BaseCache):
 
         The `params` mapping holds the keys of the Django ``CACHES`` setting.
         ``SHARDS`` and ``DATABASE_TIMEOUT`` configure the underlying
-        :class:`FanoutCache <diskcache.FanoutCache>`, ``DISK`` selects the
-        :class:`Disk <diskcache.Disk>` type or subclass used for serialization
-        as a class or a dotted import path such as ``'diskcache.SafeDisk'``,
+        :class:`FanoutCache <diskcache_community.FanoutCache>`, ``DISK`` selects the
+        :class:`Disk <diskcache_community.Disk>` type or subclass used for serialization
+        as a class or a dotted import path such as ``'diskcache_community.SafeDisk'``,
         and ``OPTIONS`` passes further settings through.
 
         :param str directory: cache directory

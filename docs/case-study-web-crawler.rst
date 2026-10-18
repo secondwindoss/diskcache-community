@@ -73,12 +73,12 @@ dictionary.
 
 The results of our current code are ephemeral. All results are lost once the
 program terminates. To make the results persistent, we can use :doc:`DiskCache
-<index>` data structures and store the results in the local file
-system. :doc:`DiskCache <index>` provides both :class:`Deque <diskcache.Deque>`
-and :class:`Index <diskcache.Index>` data structures which can replace our urls
-and results variables.
+<index>` data structures and store the results in the local file system.
+:doc:`DiskCache <index>` provides both :class:`Deque
+<diskcache_community.Deque>` and :class:`Index <diskcache_community.Index>`
+data structures which can replace our urls and results variables.
 
-    >>> from diskcache import Deque, Index
+    >>> from diskcache_community import Deque, Index
     >>> def crawl():
     ...     urls = Deque([0], 'data/urls')
     ...     results = Index('data/results')

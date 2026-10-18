@@ -1,4 +1,4 @@
-"""Test diskcache.fanout.FanoutCache."""
+"""Test diskcache_community.fanout.FanoutCache."""
 
 import collections as co
 import hashlib
@@ -18,7 +18,7 @@ from unittest import mock
 
 import pytest
 
-import diskcache as dc
+import diskcache_community as dc
 
 warnings.simplefilter('error')
 warnings.simplefilter('ignore', category=dc.EmptyDirWarning)

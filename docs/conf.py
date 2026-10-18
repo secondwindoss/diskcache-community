@@ -14,7 +14,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-import diskcache
+import diskcache_community as diskcache
 
 
 # -- Project information -----------------------------------------------------

@@ -29,9 +29,10 @@
 > [!IMPORTANT]
 > This is a community fork of [python-diskcache](https://github.com/grantjenks/python-diskcache),
 > whose last release was 5.6.3 in August 2023. It is published on PyPI as
-> `diskcache-community` and still imported as `diskcache`. It carries the
-> fix path for [CVE-2025-69872](https://github.com/advisories/GHSA-w8v5-vhqr-4h9v)
-> and stays compatible with existing 5.6.3 cache directories.
+> `diskcache-community` and imported as `diskcache_community`, so it installs
+> next to the upstream `diskcache` package. It carries the fix path for
+> [CVE-2025-69872](https://github.com/advisories/GHSA-w8v5-vhqr-4h9v) and
+> reads and writes the same cache directories as 5.6.3.
 > See [Why this fork](#why-this-fork) and [Migrating from diskcache](#migrating-from-diskcache).
 
 ## Install
@@ -40,14 +41,14 @@
 pip install diskcache-community
 ```
 
-If the upstream `diskcache` package is already installed, remove it first.
-Both distributions write to the same `diskcache/` package directory and
-cannot coexist; see [Migrating from diskcache](#migrating-from-diskcache).
+The package is imported as `diskcache_community` and never touches the
+upstream `diskcache` package, so both can be installed in the same environment;
+see [Migrating from diskcache](#migrating-from-diskcache).
 
 ## Usage
 
 ```python
-from diskcache import Cache
+from diskcache_community import Cache
 
 cache = Cache('cache')                 # the directory is created with mode 0700
 cache.set('answer', 42, expire=3600, tag='math')
@@ -69,7 +70,7 @@ Shard across several SQLite files for higher write throughput, and plug the
 same cache into Django:
 
 ```python
-from diskcache import FanoutCache
+from diskcache_community import FanoutCache
 
 cache = FanoutCache('cache', shards=8, timeout=1)
 ```
@@ -78,10 +79,10 @@ cache = FanoutCache('cache', shards=8, timeout=1)
 # settings.py
 CACHES = {
     'default': {
-        'BACKEND': 'diskcache.DjangoCache',
+        'BACKEND': 'diskcache_community.DjangoCache',
         'LOCATION': '/var/tmp/django_cache',
         'SHARDS': 8,
-        'DISK': 'diskcache.SafeDisk',  # restricted unpickling, see below
+        'DISK': 'diskcache_community.SafeDisk',  # restricted unpickling, see below
     }
 }
 ```
@@ -91,7 +92,7 @@ only a fixed set of built-in types and keeps file reads inside the cache
 directory:
 
 ```python
-from diskcache import Cache, SafeDisk
+from diskcache_community import Cache, SafeDisk
 
 cache = Cache('cache', disk=SafeDisk)
 ```
@@ -120,13 +121,14 @@ anyone who can write into the cache directory can run code in the process
 that reads from it. The package still works, but scanners flag it and there
 is no fixed upstream version.
 
-This fork publishes the same library as `diskcache-community` and fixes it in
-two steps. Version 5.7.0 keeps the `cache.db` schema, the file layout, the
-serialization modes and the memoize key format unchanged, so a 5.6.3 process
-opens a directory written by this fork and the reverse. It adds the opt-in
-`SafeDisk`, creates cache directories with mode `0700`, opens read-only
-directories read-only, closes the per-thread SQLite connections it used to
-leak, and survives `fork`. Version 6.0.0 will make safe reading the default.
+This fork publishes the same library as `diskcache-community`. It keeps the
+`cache.db` schema, the file layout, the serialization modes and the memoize
+key format unchanged, so a 5.6.3 process opens a directory written by this
+fork and the reverse. It adds the opt-in `SafeDisk`, creates cache directories
+with mode `0700`, opens read-only directories read-only, closes the per-thread
+SQLite connections it used to leak, and survives `fork`. The package is
+imported as `diskcache_community`, so a project can move to it while other
+dependencies in the same environment still use the upstream `diskcache`.
 The [changelog](CHANGELOG.md) lists every change and
 [SECURITY.md](SECURITY.md) describes what is and is not fixed.
 
@@ -135,25 +137,32 @@ fork keeps his license, copyright and author credit; see [NOTICE](NOTICE).
 
 ## Migrating from diskcache
 
-The import name and the public API are unchanged, so no code changes are
-needed. Only the distribution changes:
+The public API and the files on disk are unchanged; only the import name
+differs. Install the fork and change the imports:
 
 ```sh
-pip uninstall diskcache
 pip install diskcache-community
 ```
 
-Never keep both installed. Uninstalling either one deletes the shared
-package directory, and the fork warns at import time when both are present.
-If `diskcache` arrives through a dependency, exclude it. With uv:
-
-```toml
-[tool.uv]
-exclude-dependencies = ["diskcache"]
+```python
+import diskcache_community as diskcache       # was: import diskcache
+from diskcache_community import Cache          # was: from diskcache import Cache
 ```
 
-With pip, install the dependent with `--no-deps` or exclude `diskcache` in a
-constraints file.
+In Django settings, use `'diskcache_community.DjangoCache'` and
+`'diskcache_community.SafeDisk'`. Existing cache directories open as they
+are, and a 5.6.3 process still opens directories written by the fork.
+
+The upstream `diskcache` package can stay installed, for example when another
+dependency requires it. Each library uses the package it imports. A library
+that wants to support both can import whichever is present:
+
+```python
+try:
+    import diskcache_community as diskcache
+except ImportError:
+    import diskcache
+```
 
 ## Documentation
 

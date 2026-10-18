@@ -7,7 +7,7 @@ import shutil
 import threading
 import time
 
-import diskcache as dc
+import diskcache_community as dc
 
 
 def make_timer(times):

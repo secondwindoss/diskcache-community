@@ -39,9 +39,9 @@ Fixes imported from upstream pull requests keep their original commits and autho
 
 ## Compatibility contract
 
-This fork publishes the same library under a new distribution name. The following stay as upstream left them, and a change to any of them is a compatibility break that needs a major version:
+This fork publishes the same library under a new distribution name, `diskcache-community`, and a new import name, `diskcache_community`, so it installs next to the upstream `diskcache` package. The following stay as upstream left them, and a change to any of them is a compatibility break that needs a major version:
 
-- the import name, `import diskcache`, and the public API exported by `diskcache/__init__.py`;
+- the import name, `import diskcache_community` (it replaced `import diskcache` in 5.8.0, before any dependent used the fork), and the public API exported by `diskcache_community/__init__.py`;
 - the `cache.db` schema: the `Settings` and `Cache` tables, the value modes 1 to 4, and the index and trigger names;
 - the directory layout: `<dir>/ab/cd/<28 hex>.val` for values and `%03d` for `FanoutCache` shards;
 - the `RAW`, `BINARY`, `TEXT` and `PICKLE` serialization and the bytes `JSONDisk` writes;

@@ -1,11 +1,11 @@
-"""Stress test diskcache.persistent.Index."""
+"""Stress test diskcache_community.persistent.Index."""
 
 import itertools as it
 import multiprocessing as mp
 import random
 import time
 
-import diskcache as dc
+import diskcache_community as dc
 
 KEYS = 100
 OPERATIONS = 10000

@@ -20,7 +20,7 @@ class Averager:
     Assumes the key will not be evicted. Set the eviction policy to 'none' on
     the cache to guarantee the key is not evicted.
 
-    >>> import diskcache
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.FanoutCache()
     >>> ave = Averager(cache, 'latency')
     >>> ave.add(0.080)
@@ -71,7 +71,7 @@ class Lock:
     Assumes the key will not be evicted. Set the eviction policy to 'none' on
     the cache to guarantee the key is not evicted.
 
-    >>> import diskcache
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.Cache()
     >>> lock = Lock(cache, 'report-123')
     >>> lock.acquire()
@@ -122,7 +122,7 @@ class RLock:
     Assumes the key will not be evicted. Set the eviction policy to 'none' on
     the cache to guarantee the key is not evicted.
 
-    >>> import diskcache
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.Cache()
     >>> rlock = RLock(cache, 'user-123')
     >>> rlock.acquire()
@@ -193,7 +193,7 @@ class BoundedSemaphore:
     Assumes the key will not be evicted. Set the eviction policy to 'none' on
     the cache to guarantee the key is not evicted.
 
-    >>> import diskcache
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.Cache()
     >>> semaphore = BoundedSemaphore(cache, 'max-cons', value=2)
     >>> semaphore.acquire()
@@ -266,7 +266,9 @@ def throttle(
     Assumes keys will not be evicted. Set the eviction policy to 'none' on the
     cache to guarantee the keys are not evicted.
 
-    >>> import diskcache, time
+    >>> import time
+
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.Cache()
     >>> count = 0
     >>> @throttle(cache, 2, 1)  # 2 calls per 1 second
@@ -323,7 +325,9 @@ def barrier(cache, lock_factory, name=None, expire=None, tag=None):
     Assumes keys will not be evicted. Set the eviction policy to 'none' on the
     cache to guarantee the keys are not evicted.
 
-    >>> import diskcache, time
+    >>> import time
+
+    >>> import diskcache_community as diskcache
     >>> cache = diskcache.Cache()
     >>> @barrier(cache, Lock)
     ... def work(num):
@@ -383,7 +387,7 @@ def memoize_stampede(
     attribute. This is useful for introspection, for bypassing the cache, or
     for rewrapping the function with a different cache.
 
-    >>> from diskcache import Cache
+    >>> from diskcache_community import Cache
     >>> cache = Cache()
     >>> @memoize_stampede(cache, expire=1)
     ... def fib(number):

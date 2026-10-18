@@ -1,4 +1,4 @@
-"""Test diskcache.SafeDisk."""
+"""Test diskcache_community.SafeDisk."""
 
 import collections as co
 import datetime as dt
@@ -17,8 +17,8 @@ import zoneinfo
 
 import pytest
 
-import diskcache as dc
-from diskcache.core import MODE_BINARY, MODE_PICKLE, SafeUnpickler
+import diskcache_community as dc
+from diskcache_community.core import MODE_BINARY, MODE_PICKLE, SafeUnpickler
 
 pytestmark = pytest.mark.filterwarnings('ignore', category=dc.EmptyDirWarning)
 
@@ -619,7 +619,7 @@ def test_django_disk_option(directory):
     pytest.importorskip('django')
 
     for params in (
-        {'DISK': 'diskcache.SafeDisk'},
+        {'DISK': 'diskcache_community.SafeDisk'},
         {'DISK': dc.SafeDisk},
         {'OPTIONS': {'disk': dc.SafeDisk}},
     ):
@@ -639,4 +639,4 @@ def test_django_disk_option(directory):
     default.close()
 
     with pytest.raises(ImportError):
-        dc.DjangoCache(directory, {'DISK': 'diskcache.NoSuchDisk'})
+        dc.DjangoCache(directory, {'DISK': 'diskcache_community.NoSuchDisk'})

@@ -1,10 +1,10 @@
-"""Stress test diskcache.persistent.Deque."""
+"""Stress test diskcache_community.persistent.Deque."""
 
 import collections as co
 import functools as ft
 import random
 
-import diskcache as dc
+import diskcache_community as dc
 
 OPERATIONS = 1000
 SEED = 0

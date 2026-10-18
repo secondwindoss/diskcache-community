@@ -1,4 +1,4 @@
-"""Test diskcache.persistent.Deque."""
+"""Test diskcache_community.persistent.Deque."""
 
 import pickle
 import shutil
@@ -7,8 +7,8 @@ from unittest import mock
 
 import pytest
 
-import diskcache as dc
-from diskcache.core import ENOVAL
+import diskcache_community as dc
+from diskcache_community.core import ENOVAL
 
 
 def rmdir(directory):

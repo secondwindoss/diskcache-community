@@ -967,11 +967,11 @@ class PicklingSideEffect:
 
 @override_settings(
     CACHES=caches_setting_for_tests(
-        BACKEND='diskcache.DjangoCache',
+        BACKEND='diskcache_community.DjangoCache',
     )
 )
 class DiskCacheTests(BaseCacheTests, TestCase):
-    """Specific test cases for diskcache.DjangoCache."""
+    """Specific test cases for diskcache_community.DjangoCache."""
 
     def setUp(self):
         super().setUp()

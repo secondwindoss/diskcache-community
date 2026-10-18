@@ -17,9 +17,9 @@ You will hear back within a week. A confirmed problem is fixed in the next relea
 Where this fork stands:
 
 - 5.7.0, the first release of this fork, reads pickles with the default `Disk` exactly as 5.6.3 does, so it opens every 5.6.3 cache. It adds an opt-in `SafeDisk` that unpickles only an allowlist of standard-library types, rejects anything outside it at write time and confines value paths to the cache directory; `Cache`, `FanoutCache`, `Deque` and `Index` take it through `disk=SafeDisk` and the Django backend through the `DISK` option. New cache directories are created with mode `0700`.
-- 6.0.0 makes safe reading the default and turns the trusted-pickle behaviour into an explicit choice, with a migration guide.
+- The default stays as it is. Existing caches hold objects outside any allowlist, such as instances of your own classes, Django responses and the keys of `memoize(typed=True)`, so `SafeDisk` remains an explicit choice.
 
-Until you run a version where safe reading is the default or you have opted into it, treat the cache directory as trusted input: keep it on local storage that only the user running the process can write to, and do not share it with other accounts.
+Unless you have opted into `SafeDisk`, treat the cache directory as trusted input: keep it on local storage that only the user running the process can write to, and do not share it with other accounts.
 
 A note on scanners: vulnerability scanners match on the distribution name, so `pip-audit`, Dependabot and similar tools report nothing for `diskcache-community` even though the default `Disk` in 5.7.0 behaves as it did in 5.6.3. A clean scan is not evidence that this issue is fixed. Use the list above instead, and the release notes of the version you run.
 

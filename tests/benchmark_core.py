@@ -1,4 +1,4 @@
-"""Benchmark diskcache.Cache
+"""Benchmark diskcache_community.Cache
 
 $ export PYTHONPATH=/Users/grantj/repos/python-diskcache
 $ python tests/benchmark_core.py -p 1 > tests/timings_core_p1.txt
@@ -28,11 +28,11 @@ caches = []
 # Disk Cache Benchmarks
 ###############################################################################
 
-import diskcache  # noqa
+import diskcache_community as diskcache  # noqa
 
 caches.append(
     (
-        'diskcache.Cache',
+        'diskcache_community.Cache',
         diskcache.Cache,
         ('tmp',),
         {},
@@ -40,7 +40,7 @@ caches.append(
 )
 caches.append(
     (
-        'diskcache.FanoutCache(shards=4, timeout=1.0)',
+        'diskcache_community.FanoutCache(shards=4, timeout=1.0)',
         diskcache.FanoutCache,
         ('tmp',),
         {'shards': 4, 'timeout': 1.0},
@@ -48,7 +48,7 @@ caches.append(
 )
 caches.append(
     (
-        'diskcache.FanoutCache(shards=8, timeout=0.010)',
+        'diskcache_community.FanoutCache(shards=8, timeout=0.010)',
         diskcache.FanoutCache,
         ('tmp',),
         {'shards': 8, 'timeout': 0.010},

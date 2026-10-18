@@ -1,4 +1,4 @@
-"""Test diskcache.recipes."""
+"""Test diskcache_community.recipes."""
 
 import shutil
 import threading
@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-import diskcache as dc
+import diskcache_community as dc
 
 
 @pytest.fixture

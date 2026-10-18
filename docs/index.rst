@@ -9,16 +9,16 @@ processes, evicts by LRU, LFU and other policies, and ships ``Deque`` and
 
 This documentation describes `diskcache-community`_, a community fork of
 `python-diskcache`_. The fork is published on PyPI as ``diskcache-community``
-and imported as ``diskcache``. It keeps the public API, the ``cache.db``
-schema and the file layout of the last upstream release, 5.6.3, so existing
-cache directories keep working, and it carries the fix path for
-CVE-2025-69872 through the opt-in :class:`SafeDisk <diskcache.SafeDisk>`.
-The README in the repository explains why the fork exists and how to migrate.
+and imported as ``diskcache_community``, so it installs next to the upstream
+``diskcache`` package. It keeps the public API, the ``cache.db`` schema and
+the file layout of the last upstream release, 5.6.3, so existing cache
+directories keep working, and it carries the fix path for CVE-2025-69872
+through the opt-in :class:`SafeDisk <diskcache_community.SafeDisk>`. The README
+in the repository explains why the fork exists and how to migrate.
 
-Install it with pip, after removing the upstream ``diskcache`` package if it
-is present::
+Install it with pip and import ``diskcache_community`` where you imported
+``diskcache``::
 
-    $ pip uninstall diskcache
     $ pip install diskcache-community
 
 Start with the :doc:`tutorial` and keep the :doc:`api` at hand.

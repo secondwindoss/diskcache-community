@@ -3,10 +3,11 @@ check.
 
 Every function opens a fixture cache read-only (apart from the access-time
 bookkeeping of the eviction policies) and raises AssertionError on the first
-mismatch. The module runs under the current code when imported by pytest and
-under the upstream 5.6.3 wheel when executed as a script from outside the
-repository, which is how the writer checks its own output and how the reverse
-test reads caches written by the current code.
+mismatch. The module runs under the current code, ``diskcache_community``, when
+imported by pytest, and under the upstream 5.6.3 wheel, ``diskcache``, when
+executed as a script from outside the repository or imported by the fixture
+writer, which is how the writer checks its own output and how the reverse test
+reads caches written by the current code.
 """
 
 import argparse
@@ -15,7 +16,10 @@ import os.path as op
 import sys
 from pathlib import Path
 
-import diskcache
+if __name__ == '__main__' or 'diskcache' in sys.modules:
+    import diskcache
+else:
+    import diskcache_community as diskcache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:

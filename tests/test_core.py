@@ -1,4 +1,4 @@
-"""Test diskcache.core.Cache."""
+"""Test diskcache_community.core.Cache."""
 
 import _thread
 import errno
@@ -22,7 +22,7 @@ from unittest import mock
 
 import pytest
 
-import diskcache as dc
+import diskcache_community as dc
 
 pytestmark = pytest.mark.filterwarnings('ignore', category=dc.EmptyDirWarning)
 
@@ -243,7 +243,7 @@ def test_get_keyerror4(cache):
     cache.reset('statistics', True)
     cache[0] = b'abcd' * 2**20
 
-    with mock.patch('diskcache.core.open', func):
+    with mock.patch('diskcache_community.core.open', func):
         with pytest.raises((IOError, KeyError, OSError)):
             cache[0]
 
@@ -1260,9 +1260,9 @@ def test_key_roundtrip(cache):
 
 
 def test_constant():
-    import diskcache.core
+    import diskcache_community.core
 
-    assert repr(diskcache.core.ENOVAL) == 'ENOVAL'
+    assert repr(diskcache_community.core.ENOVAL) == 'ENOVAL'
 
 
 def test_copy():
@@ -1466,7 +1466,7 @@ def test_cleanup_dirs(cache):
 
 def test_disk_write_os_error(cache):
     func = mock.Mock(side_effect=[OSError] * 10)
-    with mock.patch('diskcache.core.open', func):
+    with mock.patch('diskcache_community.core.open', func):
         with pytest.raises(OSError):
             cache[0] = '\0' * 2**20
 
