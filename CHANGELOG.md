@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.0 (2026-10-18)
+
+The package is now imported as `diskcache_community`, so it installs next to the upstream `diskcache` package instead of replacing it. The `cache.db` schema, the file layout, the serialization modes, the memoize key format and the persisted settings are unchanged, so a 5.6.3 process opens a directory written by 5.8.0 and the reverse. `SafeDisk` stays opt-in and gains an allowlist for your own classes, a process-wide default disk selects it for caches that libraries create, and caches can treat unreadable entries as missing.
 
 ### Security
 
@@ -10,6 +12,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Docs
 
+- `SECURITY.md` describes what 5.8.0 adds for CVE-2025-69872 and links the steps (PR #28).
 - Two new pages: "Fix CVE-2025-69872 in diskcache" gives the steps to read caches with `SafeDisk`, including caches that libraries create, your own classes and entries already in the cache, and lists what any restricted disk has to cover; "Migrating from diskcache 5.6.3" covers the dependency, imports, Django settings, running next to upstream `diskcache`, the behaviour changes since 5.6.3 and going back. Both open the documentation and are linked from the README (PR #27).
 - A new benchmarks page, measured on 2026-10-12, compares diskcache-community with diskcache 5.6.3, memcached, Redis, lmdb, sqlitedict, shelve and the Django cache backends, with four charts. The scripts that produce it are in `tests/benchmarks` (`driver.py` runs the stores, `report.py` writes the page and charts from the JSON results). The 2019 pages from upstream stay as the old benchmarks, labelled as such and linked from the new page, and the README header, features and documentation list link to the new page (PR #26).
 - Shared links show a project card: a social preview image in `.github/`, and Open Graph tags on the documentation through `sphinxext-opengraph` (PR #21).
