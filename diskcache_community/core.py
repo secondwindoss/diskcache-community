@@ -990,6 +990,138 @@ class SafeDisk(Disk):
         super().remove(file_path)
 
 
+ENV_DISK = 'DISKCACHE_DISK'
+ENV_SAFE_TYPES = 'DISKCACHE_SAFE_TYPES'
+ENV_SAFE_MODULES = 'DISKCACHE_SAFE_MODULES'
+
+_configured_disk = None  # pylint: disable=invalid-name
+
+
+def _check_disk_type(disk, source='disk'):
+    if not (isinstance(disk, type) and issubclass(disk, Disk)):
+        raise ValueError(
+            '%s must subclass diskcache_community.Disk, not %r'
+            % (source, disk)
+        )
+
+
+def configure(disk):
+    """Set the disk type of caches created without a `disk` argument.
+
+    The configured type applies to every :class:`Cache`, :class:`FanoutCache
+    <diskcache_community.FanoutCache>`, :class:`Deque
+    <diskcache_community.Deque>`, :class:`Index <diskcache_community.Index>`
+    and :class:`DjangoCache <diskcache_community.DjangoCache>` created
+    afterwards in this process that is not given a disk. A disk passed
+    explicitly always wins, and caches that already exist keep theirs.
+    ``configure(None)`` removes the setting, so the environment variables
+    apply again. The choice is never persisted in a cache directory.
+
+    >>> previous = configure(SafeDisk)
+    >>> type(Cache().disk) is SafeDisk
+    True
+    >>> configure(previous) is SafeDisk
+    True
+
+    :param disk: Disk type or subclass, or None
+    :return: the previously configured disk type, or None
+    :raises ValueError: if `disk` is not a Disk subclass
+
+    """
+    global _configured_disk  # pylint: disable=global-statement
+
+    if disk is not None:
+        _check_disk_type(disk)
+
+    previous, _configured_disk = _configured_disk, disk
+    return previous
+
+
+def default_disk():
+    """Return the disk type for a cache created without a `disk` argument.
+
+    That is the type set with :func:`configure`, else the type selected by
+    the environment variables, else :class:`Disk`.
+
+    ``DISKCACHE_DISK`` is empty or ``default`` for :class:`Disk`, ``safe``
+    for :class:`SafeDisk`, or the import path of a Disk subclass, such as
+    ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES`` lists
+    classes to allow by import path and ``DISKCACHE_SAFE_MODULES`` lists
+    module names whose classes to allow, both comma-separated, as
+    :meth:`SafeDisk.with_types` takes them.
+
+    :return: Disk type or subclass
+    :raises ValueError: if an environment variable is invalid
+
+    """
+    if _configured_disk is not None:
+        return _configured_disk
+
+    environ = os.environ
+    return _disk_from_environment(
+        environ.get(ENV_DISK, ''),
+        environ.get(ENV_SAFE_TYPES, ''),
+        environ.get(ENV_SAFE_MODULES, ''),
+    )
+
+
+def _split_list(value):
+    return [entry.strip() for entry in value.split(',') if entry.strip()]
+
+
+def _import_object(path, source):
+    """Return the object at import path `path`, module:name or module.name."""
+    if ':' in path:
+        module_name, _, name = path.partition(':')
+    else:
+        module_name, _, name = path.rpartition('.')
+
+    try:
+        if not module_name or not name:
+            raise ImportError(path)
+        __import__(module_name)
+        obj = sys.modules[module_name]
+        for part in name.split('.'):
+            obj = getattr(obj, part)
+    except (ImportError, AttributeError) as error:
+        raise ValueError(
+            '%s: cannot import %r: %s' % (source, path, error)
+        ) from None
+
+    return obj
+
+
+@ft.lru_cache(maxsize=16)
+def _disk_from_environment(name, types, modules):
+    """Return the disk type that the environment variable values select."""
+    name = name.strip()
+    keyword = name.lower()
+    extras = types.strip() or modules.strip()
+
+    if keyword == 'safe':
+        classes = [
+            _import_object(entry, ENV_SAFE_TYPES)
+            for entry in _split_list(types)
+        ]
+        prefixes = _split_list(modules)
+        if not (classes or prefixes):
+            return SafeDisk
+        return SafeDisk.with_types(*classes, modules=prefixes)
+
+    if extras:
+        raise ValueError(
+            '%s and %s apply only with %s=safe'
+            % (ENV_SAFE_TYPES, ENV_SAFE_MODULES, ENV_DISK)
+        )
+
+    if keyword in ('', 'default'):
+        return Disk
+
+    disk = _import_object(name, ENV_DISK)
+    _check_disk_type(disk, ENV_DISK)
+    return disk
+
+
 def _meta_result(value, expire_time, tag, store_time, meta=(None, None, None)):
     """Return `value`, or a tuple of `value` and the requested metadata.
 
@@ -1329,7 +1461,7 @@ class Cache:
         self,
         directory=None,
         timeout=60,
-        disk=Disk,
+        disk=None,
         *,
         read_only=False,
         **settings
@@ -1338,7 +1470,8 @@ class Cache:
 
         :param str directory: cache directory
         :param float timeout: SQLite connection timeout
-        :param disk: Disk type or subclass for serialization
+        :param disk: Disk type or subclass for serialization (default None,
+            the type :func:`default_disk` returns)
         :param bool read_only: open the cache read-only (default False)
         :param settings: any of DEFAULT_SETTINGS
 
@@ -1356,6 +1489,9 @@ class Cache:
         <tutorial-read-only>` for details.
 
         """
+        if disk is None:
+            disk = default_disk()
+
         try:
             assert issubclass(disk, Disk)
         except (TypeError, AssertionError):

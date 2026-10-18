@@ -18,6 +18,8 @@ from .core import (
     SafeDisk,
     Timeout,
     UnknownFileWarning,
+    configure,
+    default_disk,
 )
 from .fanout import FanoutCache
 from .persistent import Deque, Index
@@ -52,6 +54,8 @@ __all__ = [
     'UNKNOWN',
     'UnknownFileWarning',
     'barrier',
+    'configure',
+    'default_disk',
     'memoize_stampede',
     'throttle',
 ]
