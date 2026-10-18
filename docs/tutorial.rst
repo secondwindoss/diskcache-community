@@ -979,6 +979,43 @@ process that writes to a shared directory with the default :class:`Disk
 :class:`SafeDisk <diskcache_community.SafeDisk>` raises
 :exc:`pickle.UnpicklingError` on those rows.
 
+Instead of falling back to the default :class:`Disk
+<diskcache_community.Disk>`, :meth:`SafeDisk.with_types
+<diskcache_community.SafeDisk.with_types>` returns a :class:`SafeDisk
+<diskcache_community.SafeDisk>` subclass that also allows your own classes
+and every class defined in the modules you name. Everything else stays
+refused, both when reading and when writing:
+
+.. code-block:: python
+
+    from diskcache_community import Cache, SafeDisk
+
+    from myapp.models import Message, Point
+
+    AppDisk = SafeDisk.with_types(
+        Message,
+        Point,
+        modules=('litellm.types', 'openai.types'),
+    )
+    cache = Cache('/tmp/mycache', disk=AppDisk)
+
+Classes given by name are matched by identity, so a subclass is refused
+unless it is listed too. A module prefix allows only classes defined in that
+module or below it: a pickle cannot reach a function, a module, or a class
+that the trusted module merely imports, such as ``os.system`` through a module
+that imports ``os``. Reading looks classes up only in modules that are already
+imported and never imports one, so import the modules before reading. List
+only plain data classes whose construction and ``__setstate__`` do nothing
+more than store their fields, such as dataclasses, named tuples, enums and
+pydantic models, because allowing a class lets a crafted pickle create
+instances of it with any field values. numpy classes are refused: numpy
+restores a dtype's internal flags from the pickle without checking them, so a
+crafted array pickle can corrupt memory. Store arrays as bytes instead, for
+example with ``numpy.save(buffer, array, allow_pickle=False)``. A write whose
+value pickles a class outside the allowlist raises :exc:`TypeError` that names
+the class. Calling ``with_types`` on the returned class adds to its allowlist,
+and a cache that uses it can be pickled as usual.
+
 .. _tutorial-read-only:
 
 Read-Only Caches
