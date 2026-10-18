@@ -10,6 +10,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Docs
 
+- A new benchmarks page, measured on 2026-10-12, compares diskcache-community with diskcache 5.6.3, memcached, Redis, lmdb, sqlitedict, shelve and the Django cache backends, with four charts. The scripts that produce it are in `tests/benchmarks` (`driver.py` runs the stores, `report.py` writes the page and charts from the JSON results). The 2019 pages from upstream stay as the old benchmarks, labelled as such and linked from the new page, and the README header, features and documentation list link to the new page (PR #26).
 - Shared links show a project card: a social preview image in `.github/`, and Open Graph tags on the documentation through `sphinxext-opengraph` (PR #21).
 - A logo: the README opens with a centered header (logo, name, tagline, links, badges) in the style of the other community forks, and the documentation shows the logo and a favicon (PR #20).
 - The README is rewritten in Markdown around install, usage and the fork story; the comparison tables move to a new `comparisons` page in the documentation, which gets its own landing page, and the 2016 testimonials are dropped (PR #19).

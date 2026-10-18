@@ -1,5 +1,13 @@
-DiskCache DjangoCache Benchmarks
-================================
+Old DjangoCache Benchmarks (2019)
+=================================
+
+.. note::
+
+   These are the old benchmarks, measured by upstream DiskCache for version 4
+   in 2019 with the scripts ``tests/benchmark_core.py`` and
+   ``tests/benchmark_djangocache.py``. They are kept for reference. The current
+   measurements, with diskcache-community, diskcache 5.6.3 and today's
+   versions of the other stores, are on :doc:`benchmarks`.
 
 :doc:`DiskCache <index>` provides a Django-compatible cache API in
 :class:`diskcache_community.DjangoCache`. A discussion of its options and

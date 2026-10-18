@@ -1,5 +1,13 @@
-DiskCache Cache Benchmarks
-==========================
+Old Cache Benchmarks (2019)
+===========================
+
+.. note::
+
+   These are the old benchmarks, measured by upstream DiskCache for version 4
+   in 2019 with the scripts ``tests/benchmark_core.py`` and
+   ``tests/benchmark_djangocache.py``. They are kept for reference. The current
+   measurements, with diskcache-community, diskcache 5.6.3 and today's
+   versions of the other stores, are on :doc:`benchmarks`.
 
 Accurately measuring performance is a difficult task. The benchmarks on this
 page are synthetic in the sense that they were designed to stress getting,
