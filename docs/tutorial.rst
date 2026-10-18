@@ -1052,6 +1052,41 @@ wins, then :func:`configure <diskcache_community.configure>`, then the
 environment, then :class:`Disk <diskcache_community.Disk>`. Caches that already
 exist keep their disk, and the choice is never stored in the cache directory.
 
+.. _tutorial-unreadable-entries:
+
+Unreadable entries
+..................
+
+An entry can exist and still not be readable: its pickle is corrupt, refers to
+a class that a library upgrade removed, or is refused by :class:`SafeDisk
+<diskcache_community.SafeDisk>`. By default reading it raises that error.
+:meth:`Disk.with_options <diskcache_community.Disk.with_options>` returns a
+disk type that deletes such an entry and treats it as missing instead, which
+suits a cache whose entries can always be computed again:
+
+.. code-block:: python
+
+    from diskcache_community import Cache, SafeDisk
+
+    AppDisk = SafeDisk.with_types(Point).with_options(on_error='miss')
+    cache = Cache('/tmp/mycache', disk=AppDisk)
+
+``get`` then returns its default, ``cache[key]`` raises :exc:`KeyError`,
+``pop``, ``pull``, ``peek`` and ``peekitem`` move on to the next item, and
+iteration, including the items and values of an :class:`Index
+<diskcache_community.Index>`, skips entries that cannot be read. ``len`` and
+``in`` still count an unreadable entry until a read deletes it. The first
+unreadable entry of each cache is logged as a warning on the
+``diskcache_community`` logger. A read-only cache returns the default from
+``get`` without deleting the entry, and its ``peek`` and ``peekitem`` raise,
+since they cannot move past it. A value file that has disappeared is a miss
+in either mode, as before.
+
+The entry is deleted for every process that shares the directory, so give
+every reader and writer of a shared cache the same disk: a reader whose
+allowlist is narrower than a writer's would delete entries the writer can
+still read.
+
 .. _tutorial-read-only:
 
 Read-Only Caches

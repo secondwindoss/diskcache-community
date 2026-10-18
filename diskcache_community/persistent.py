@@ -16,6 +16,43 @@ from shutil import rmtree
 from .core import ENOVAL, Cache
 
 
+class _IndexValuesView(ValuesView):
+    """Values view of an Index that skips items read as missing.
+
+    An item can disappear between listing its key and reading its value:
+    another process deleted it, or the disk treats an unreadable value as
+    missing.
+
+    """
+
+    def __iter__(self):
+        _cache = self._mapping._cache  # pylint: disable=protected-access
+        for key in self._mapping:
+            value = _cache.get(key, ENOVAL, retry=True)
+            if value is not ENOVAL:
+                yield value
+
+    def __contains__(self, value):
+        return any(item is value or item == value for item in self)
+
+
+class _IndexItemsView(ItemsView):
+    """Items view of an Index that skips items read as missing."""
+
+    def __iter__(self):
+        _cache = self._mapping._cache  # pylint: disable=protected-access
+        for key in self._mapping:
+            value = _cache.get(key, ENOVAL, retry=True)
+            if value is not ENOVAL:
+                yield key, value
+
+    def __contains__(self, item):
+        key, value = item
+        _cache = self._mapping._cache  # pylint: disable=protected-access
+        stored = _cache.get(key, ENOVAL, retry=True)
+        return stored is not ENOVAL and (stored is value or stored == value)
+
+
 def _make_compare(seq_op, doc):
     """Make compare method with Sequence semantics."""
 
@@ -1082,7 +1119,7 @@ class Index(MutableMapping):
         :return: values view
 
         """
-        return ValuesView(self)
+        return _IndexValuesView(self)
 
     def items(self):
         """Set-like object providing a view of index items.
@@ -1096,7 +1133,7 @@ class Index(MutableMapping):
         :return: items view
 
         """
-        return ItemsView(self)
+        return _IndexItemsView(self)
 
     __hash__ = None  # type: ignore
 
