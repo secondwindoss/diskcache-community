@@ -4,6 +4,7 @@
 import codecs
 import collections as co
 import contextlib as cl
+import copyreg
 import datetime as dt
 import decimal
 import errno
@@ -19,6 +20,7 @@ import pickle
 import pickletools
 import sqlite3
 import struct
+import sys
 import tempfile
 import threading
 import time
@@ -553,23 +555,179 @@ _SAFE_MAPPINGS = (dict, co.Counter, co.OrderedDict, co.defaultdict)
 _SAFE_SEQUENCES = (list, tuple, set, frozenset, co.deque)
 _SAFE_TZ_TYPES = (type(None), dt.timezone)
 
+# Packages whose classes SafeDisk.with_types refuses to allow. numpy restores
+# the internal flags of a dtype from its pickle without checking them, so a
+# crafted pickle can make an array read raw bytes as object pointers.
+
+UNSAFE_MODULES = ('numpy',)
+
+_PICKLE_STRING_OPS = frozenset(
+    {'BINUNICODE', 'BINUNICODE8', 'SHORT_BINUNICODE', 'UNICODE'}
+)
+_PICKLE_GET_OPS = frozenset({'BINGET', 'GET', 'LONG_BINGET'})
+_PICKLE_PUT_OPS = frozenset({'BINPUT', 'LONG_BINPUT', 'PUT'})
+_PICKLE_EXT_OPS = frozenset({'EXT1', 'EXT2', 'EXT4'})
+
+
+def _in_modules(module, modules):
+    """Return True when `module` is one of `modules` or inside one."""
+    return any(
+        module == prefix or module.startswith(prefix + '.')
+        for prefix in modules
+    )
+
+
+def _pickle_globals(data):
+    """Return the (module, name) pairs that the pickle `data` looks up.
+
+    Return None when a STACK_GLOBAL takes its operands from something other
+    than the strings pushed just before it, which the pickler never writes,
+    or when the pickle uses a copyreg extension code instead of a name.
+
+    """
+    found = set()
+    pushed = []
+    memo = {}
+
+    for opcode, arg, _ in pickletools.genops(data):
+        name = opcode.name
+
+        if name in _PICKLE_EXT_OPS:
+            return None
+
+        if name in ('GLOBAL', 'INST'):
+            module, _, attr = arg.partition(' ')
+            found.add((module, attr))
+        elif name == 'STACK_GLOBAL':
+            if len(pushed) < 2 or None in pushed[-2:]:
+                return None
+            found.add((pushed[-2], pushed[-1]))
+
+        if name in _PICKLE_STRING_OPS:
+            pushed.append(arg)
+        elif name in _PICKLE_GET_OPS:
+            pushed.append(memo.get(arg))
+        elif name == 'MEMOIZE':
+            memo[len(memo)] = pushed[-1] if pushed else None
+        elif name in _PICKLE_PUT_OPS:
+            memo[arg] = pushed[-1] if pushed else None
+        elif name not in ('FRAME', 'PROTO'):
+            pushed.append(None)
+
+    return found
+
 
 class SafeUnpickler(pickle.Unpickler):
-    """Unpickler that resolves only the names in SAFE_PICKLE_NAMES.
+    """Unpickler that resolves only an allowlist of names.
 
     Every pickle opcode that can call code (GLOBAL, STACK_GLOBAL, INST, OBJ,
     NEWOBJ, NEWOBJ_EX and REDUCE) obtains its callable through `find_class`,
     so restricting `find_class` to a fixed set of constructors is enough to
     keep a crafted pickle from running code.
 
+    By default the allowlist is SAFE_PICKLE_NAMES. `names` replaces that
+    mapping of module to names, `classes` adds classes by identity, and
+    `modules` adds every class defined in the given modules or below them.
+    A class is looked up attribute by attribute and every step must be a
+    class, so a name such as ``os.system`` that reaches a function through a
+    module imported by a trusted module is refused. Classes are looked up
+    only in modules that are already imported; reading a pickle never
+    imports a module, so it cannot run a module's top-level code.
+
     """
 
+    def __init__(self, file, names=None, classes=(), modules=()):
+        super().__init__(file)
+        self._names = SAFE_PICKLE_NAMES if names is None else names
+        self._classes = frozenset(classes)
+        self._class_modules = frozenset(cls.__module__ for cls in classes)
+        self._modules = tuple(modules)
+
     def find_class(self, module, name):
-        if name in SAFE_PICKLE_NAMES.get(module, ()):
+        if name in self._names.get(module, ()):
             return super().find_class(module, name)
+
+        if module in self._class_modules or _in_modules(module, self._modules):
+            obj = self._resolve(module, name)
+            if obj is not None and (
+                obj in self._classes
+                or _in_modules(obj.__module__, self._modules)
+            ):
+                return obj
+
         raise pickle.UnpicklingError(
             'SafeDisk refuses to unpickle %s.%s' % (module, name)
         )
+
+    @staticmethod
+    def _resolve(module, name):
+        """Return the class `name` in `module`, or None if it is not one."""
+        parts = name.split('.')
+
+        if any(not part or part.startswith('__') for part in parts):
+            return None
+
+        obj = sys.modules.get(module)
+
+        for part in parts:
+            obj = getattr(obj, part, None)
+            if not isinstance(obj, type):
+                return None
+
+        return obj
+
+
+class _DerivedDiskType(type):
+    """Metaclass of the disk classes that SafeDisk.with_types derives.
+
+    A derived class is a subclass of a disk class defined in a module, its
+    root, with a few class attributes set. It pickles as its root and those
+    attributes, so a Cache using it can be pickled like any other.
+
+    """
+
+    def __repr__(cls):
+        if '_disk_root' not in cls.__dict__:
+            return super().__repr__()
+        options = ', '.join(
+            '%s=%r' % item for item in sorted(cls._disk_options.items())
+        )
+        return '<class %r with %s>' % (
+            '%s.%s' % (cls.__module__, cls.__qualname__),
+            options,
+        )
+
+
+def _derive_disk(base, options):
+    """Return a subclass of `base` whose class attributes include `options`.
+
+    Deriving from a derived class starts from its root and its options, so
+    derived classes never nest. A class defined in a module that subclasses
+    a derived class is a root of its own.
+
+    """
+    # pylint: disable=protected-access
+    root = base._disk_root if '_disk_root' in base.__dict__ else base
+    merged = dict(getattr(base, '_disk_options', {}))
+    merged.update(options)
+    attrs = dict(merged)
+    attrs.update(
+        __module__=root.__module__,
+        __qualname__=root.__qualname__,
+        _disk_root=root,
+        _disk_options=merged,
+    )
+    return _DerivedDiskType(root.__name__, (root,), attrs)
+
+
+def _reduce_derived_disk(cls):
+    # pylint: disable=protected-access
+    if '_disk_root' not in cls.__dict__:
+        return cls.__qualname__
+    return _derive_disk, (cls._disk_root, cls._disk_options)
+
+
+copyreg.pickle(_DerivedDiskType, _reduce_derived_disk)
 
 
 class SafeDisk(Disk):
@@ -598,13 +756,133 @@ class SafeDisk(Disk):
 
     Objects outside the allowlist, such as instances of your own classes,
     Django model instances and responses, and the ``type`` objects that
-    ``memoize(typed=True)`` puts into keys, need the default :class:`Disk`.
+    ``memoize(typed=True)`` puts into keys, need either the default
+    :class:`Disk` or a disk from :meth:`with_types` that allows them.
 
     """
+
+    safe_types: frozenset = frozenset()
+    safe_modules: tuple = ()
 
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         super().__init__(directory, min_file_size, pickle_protocol)
         self._real_directory = op.realpath(directory)
+
+    @classmethod
+    def with_types(cls, *types, modules=()):
+        """Return a SafeDisk subclass that also allows the given types.
+
+        The allowlist of the returned class is the standard-library one plus
+        `types`, matched by identity, and every class defined in `modules` or
+        in a module below them. Calling it on a class that it returned adds
+        to that class's allowlist. Writes are checked against the same
+        allowlist, so a value that the reader would refuse raises
+        :exc:`TypeError` before it is written.
+
+        Allow only plain data classes whose construction and ``__setstate__``
+        do nothing beyond storing their fields, such as dataclasses, named
+        tuples, enums and pydantic models. Reading looks classes up only in
+        modules that are already imported, so import them before reading.
+        numpy classes are refused, see ``UNSAFE_MODULES``; store arrays as
+        bytes, for example with ``numpy.save(..., allow_pickle=False)``.
+
+        >>> import collections
+        >>> Point = collections.namedtuple('Point', 'x y')
+        >>> PointDisk = SafeDisk.with_types(Point)
+        >>> issubclass(PointDisk, SafeDisk)
+        True
+
+        :param types: classes to allow, by identity
+        :param modules: module names whose classes to allow, such as
+            ``('litellm.types',)``; a single string is one module
+        :return: SafeDisk subclass to pass as ``disk=``
+        :raises TypeError: if an entry of `types` is not a class
+        :raises ValueError: if an entry of `modules` is not a module name, or
+            a type or module is in ``UNSAFE_MODULES``
+
+        """
+        for entry in types:
+            if not isinstance(entry, type):
+                raise TypeError('with_types takes classes, not %r' % (entry,))
+            if _in_modules(entry.__module__, UNSAFE_MODULES):
+                raise ValueError('with_types refuses the class %r' % (entry,))
+
+        if isinstance(modules, str):
+            modules = (modules,)
+        prefixes = []
+        for entry in modules:
+            prefix = entry.rstrip('.') if isinstance(entry, str) else ''
+            if not prefix or not all(
+                part.isidentifier() for part in prefix.split('.')
+            ):
+                raise ValueError('%r is not a module name' % (entry,))
+            if any(
+                _in_modules(prefix, (unsafe,))
+                or _in_modules(unsafe, (prefix,))
+                for unsafe in UNSAFE_MODULES
+            ):
+                raise ValueError('with_types refuses the module %r' % (entry,))
+            prefixes.append(prefix)
+
+        return _derive_disk(
+            cls,
+            {
+                'safe_types': cls.safe_types | frozenset(types),
+                'safe_modules': tuple(
+                    dict.fromkeys(cls.safe_modules + tuple(prefixes))
+                ),
+            },
+        )
+
+    def _unpickler(self, data):
+        return SafeUnpickler(
+            io.BytesIO(data),
+            SAFE_PICKLE_NAMES,
+            self.safe_types,
+            self.safe_modules,
+        )
+
+    def _extended(self):
+        return bool(self.safe_types or self.safe_modules)
+
+    def _check_object(self, obj, what):
+        """Raise TypeError unless the reader would accept `obj` back."""
+        try:
+            self._check(obj, what)
+        except TypeError:
+            if not self._extended():
+                raise
+        else:
+            return
+
+        data = pickle.dumps(obj, protocol=self.pickle_protocol)
+        names = _pickle_globals(data)
+
+        if names is None:
+            try:
+                self._unpickler(data).load()
+            except pickle.UnpicklingError as error:
+                raise TypeError(
+                    'SafeDisk cannot store %s: %s' % (what, error)
+                ) from None
+            return
+
+        for module, name in sorted(names):
+            try:
+                self._unpickler(b'').find_class(module, name)
+            except pickle.UnpicklingError:
+                raise TypeError(
+                    'SafeDisk cannot store %s of type %s.%s: it pickles'
+                    ' %s.%s, which the allowlist refuses; allow it with'
+                    ' SafeDisk.with_types()'
+                    % (
+                        what,
+                        type(obj).__module__,
+                        type(obj).__qualname__,
+                        module,
+                        name,
+                    )
+                ) from None
 
     def _check(self, obj, what):
         """Raise TypeError unless every object in `obj` is in SAFE_TYPES."""
@@ -682,18 +960,18 @@ class SafeDisk(Disk):
     def put(self, key):
         # pylint: disable=unidiomatic-typecheck
         if type(key) not in (bytes, str, int, float):
-            self._check(key, 'key')
+            self._check_object(key, 'key')
         return super().put(key)
 
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        return SafeUnpickler(io.BytesIO(key)).load()
+        return self._unpickler(key).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck
         if not read and type(value) not in (bytes, str, int, float):
-            self._check(value, 'value')
+            self._check_object(value, 'value')
         return super().store(value, read, key=key)
 
     def fetch(self, mode, filename, value, read):
@@ -703,7 +981,7 @@ class SafeDisk(Disk):
         if mode == MODE_PICKLE:
             if value is None:
                 value = super().fetch(MODE_BINARY, filename, None, False)
-            return SafeUnpickler(io.BytesIO(value)).load()
+            return self._unpickler(value).load()
 
         return super().fetch(mode, filename, value, read)
 

@@ -64,7 +64,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install diskcache and test dependencies
-        run: pip install -e . "django==5.2.*" pytest pytest-cov pytest-django pytest-xdist
+        run: pip install -e . "django==5.2.*" numpy pydantic pytest pytest-cov pytest-django pytest-xdist
       - name: Run tests
         run: pytest
 

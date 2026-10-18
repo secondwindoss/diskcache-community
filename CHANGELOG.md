@@ -4,6 +4,10 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ## Unreleased
 
+### Security
+
+- `SafeDisk.with_types(*types, modules=())` returns a `SafeDisk` subclass whose allowlist adds the given classes, matched by identity, and every class defined in the named modules or below them. A module name may only reach a class defined in that module: a dotted name such as `os.system`, reached through a module that imports `os`, a class the module merely imports, a module and a dunder attribute are refused, and reading never imports a module, so a pickle cannot run a module's top-level code. numpy classes are refused (`UNSAFE_MODULES`), because numpy restores a dtype's flags from the pickle without checking them and a crafted array pickle can corrupt memory. Writes stay exact: a value outside the standard-library types is pickled and the names its pickle looks up are checked against the same allowlist, so a value the reader would refuse raises `TypeError` naming the class before anything is written. Calling `with_types` again adds to the allowlist, and a `Cache`, `FanoutCache`, `Deque`, `Index` or `DjangoCache` using the returned class pickles as before. The plain `SafeDisk` is unchanged (PR #23).
+
 ### Docs
 
 - Shared links show a project card: a social preview image in `.github/`, and Open Graph tags on the documentation through `sphinxext-opengraph` (PR #21).

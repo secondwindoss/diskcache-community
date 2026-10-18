@@ -151,6 +151,12 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
    The Python types that :class:`SafeDisk <diskcache_community.SafeDisk>` accepts
    for writing; exactly the types the names above read back.
 
+.. data:: diskcache_community.core.UNSAFE_MODULES
+
+   Packages whose classes :meth:`SafeDisk.with_types
+   <diskcache_community.SafeDisk.with_types>` refuses to allow, because
+   unpickling them is not memory-safe.
+
 Timeout
 -------
 
