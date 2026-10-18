@@ -157,6 +157,15 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
    <diskcache_community.SafeDisk.with_types>` refuses to allow, because
    unpickling them is not memory-safe.
 
+Default disk
+------------
+
+Read the :ref:`default disk tutorial <tutorial-default-disk>` for details.
+
+.. autofunction:: diskcache_community.configure
+
+.. autofunction:: diskcache_community.default_disk
+
 Timeout
 -------
 

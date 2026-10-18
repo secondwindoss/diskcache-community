@@ -33,15 +33,18 @@ Get the Code
 :doc:`DiskCache <index>` is actively developed on GitHub, where the code is
 always available.
 
-You can either clone the `DiskCache repository <https://github.com/secondwindoss/diskcache-community>`_::
+You can either clone the `DiskCache repository
+<https://github.com/secondwindoss/diskcache-community>`_::
 
     $ git clone https://github.com/secondwindoss/diskcache-community.git
 
-Download the `tarball <https://github.com/secondwindoss/diskcache-community/tarball/master>`_::
+Download the `tarball
+<https://github.com/secondwindoss/diskcache-community/tarball/master>`_::
 
     $ curl -OL https://github.com/secondwindoss/diskcache-community/tarball/master
 
-Or, download the `zipball <https://github.com/secondwindoss/diskcache-community/zipball/master>`_::
+Or, download the `zipball
+<https://github.com/secondwindoss/diskcache-community/zipball/master>`_::
 
     $ curl -OL https://github.com/secondwindoss/diskcache-community/zipball/master
 
@@ -1015,6 +1018,39 @@ example with ``numpy.save(buffer, array, allow_pickle=False)``. A write whose
 value pickles a class outside the allowlist raises :exc:`TypeError` that names
 the class. Calling ``with_types`` on the returned class adds to its allowlist,
 and a cache that uses it can be pickled as usual.
+
+.. _tutorial-default-disk:
+
+Default disk
+............
+
+A cache created without a ``disk`` argument uses the type that
+:func:`default_disk <diskcache_community.default_disk>` returns. That is
+:class:`Disk <diskcache_community.Disk>` unless the process configures
+another, which reaches caches that other libraries create for you, as long as
+they do not pass a disk of their own. Set it in code, before the caches are
+created:
+
+.. code-block:: python
+
+    import diskcache_community
+
+    diskcache_community.configure(diskcache_community.SafeDisk)
+
+or in the environment, without changing any code:
+
+.. code-block:: shell
+
+    DISKCACHE_DISK=safe python app.py
+
+``DISKCACHE_DISK`` takes ``safe``, ``default``, or the import path of a disk
+class such as ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES``
+and ``DISKCACHE_SAFE_MODULES`` list classes and module names, comma-separated,
+passed to :meth:`SafeDisk.with_types
+<diskcache_community.SafeDisk.with_types>`. A disk passed explicitly always
+wins, then :func:`configure <diskcache_community.configure>`, then the
+environment, then :class:`Disk <diskcache_community.Disk>`. Caches that already
+exist keep their disk, and the choice is never stored in the cache directory.
 
 .. _tutorial-read-only:
 

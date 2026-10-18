@@ -15,6 +15,10 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 - The README is rewritten in Markdown around install, usage and the fork story; the comparison tables move to a new `comparisons` page in the documentation, which gets its own landing page, and the 2016 testimonials are dropped (PR #19).
 - The documentation is published on Read the Docs at https://diskcache-community.readthedocs.io/, built from `master` on every push; the README links point there instead of at the `.rst` sources (PR #18).
 
+### Features
+
+- `configure(disk)` sets the disk type of every `Cache`, `FanoutCache`, `Deque`, `Index` and `DjangoCache` created afterwards without a disk, and `default_disk()` returns the type in effect. Without `configure`, the environment decides: `DISKCACHE_DISK=safe` selects `SafeDisk`, with `DISKCACHE_SAFE_TYPES` and `DISKCACHE_SAFE_MODULES` passed to `SafeDisk.with_types`, and `DISKCACHE_DISK` also takes `default` or the import path of a disk class. A disk passed explicitly always wins, so libraries that choose their own disk keep it; caches that already exist keep theirs, and nothing is persisted. The `disk` arguments now default to `None`, meaning that type (PR #24).
+
 ### Packaging
 
 - **Breaking:** the package is imported as `diskcache_community` instead of `diskcache`, so it installs next to the upstream `diskcache` distribution without overwriting it, and a project can move to the fork while other dependencies still require `diskcache`. The public API, the `cache.db` schema, the file layout and the serialization are unchanged, so cache directories are shared with 5.6.3 in both directions. Django settings name `diskcache_community.DjangoCache` and `diskcache_community.SafeDisk`. The import-time warning about an upstream `diskcache` installed in the same environment is gone, and a CI job installs both distributions together, runs the golden tests in both directions and checks that uninstalling either leaves the other working (PR #22).

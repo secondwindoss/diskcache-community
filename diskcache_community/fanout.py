@@ -9,7 +9,14 @@ import sqlite3
 import tempfile
 import time
 
-from .core import DEFAULT_SETTINGS, ENOVAL, Cache, Disk, Timeout, _meta_result
+from .core import (
+    DEFAULT_SETTINGS,
+    ENOVAL,
+    Cache,
+    Timeout,
+    _meta_result,
+    default_disk,
+)
 from .persistent import Deque, Index
 
 
@@ -22,14 +29,16 @@ class FanoutCache:
     """Cache that shards keys and values."""
 
     def __init__(
-        self, directory=None, shards=8, timeout=0.010, disk=Disk, **settings
+        self, directory=None, shards=8, timeout=0.010, disk=None, **settings
     ):
         """Initialize cache instance.
 
         :param str directory: cache directory
         :param int shards: number of shards to distribute writes
         :param float timeout: SQLite connection timeout
-        :param disk: `Disk` instance for serialization
+        :param disk: `Disk` type or subclass for serialization (default None,
+            the type :func:`default_disk
+            <diskcache_community.default_disk>` returns)
         :param settings: any of `DEFAULT_SETTINGS`
 
         The cache directory, the shard directories and the directories of
@@ -37,6 +46,9 @@ class FanoutCache:
         :class:`Cache` directories; existing directories keep their mode.
 
         """
+        if disk is None:
+            disk = default_disk()
+
         if directory is None:
             directory = tempfile.mkdtemp(prefix='diskcache-')
         directory = str(directory)
