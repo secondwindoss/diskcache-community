@@ -70,8 +70,8 @@ except Exception:  # pylint: disable=broad-except  # pragma: no cover
 
 
 __title__ = 'diskcache-community'
-__version__ = '5.8.0'
-__build__ = 0x050800
+__version__ = '5.8.1'
+__build__ = 0x050801
 __author__ = 'Grant Jenks'
 __license__ = 'Apache 2.0'
 __copyright__ = 'Copyright 2016-2023 Grant Jenks'

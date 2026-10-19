@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.1 (2026-10-18)
+
+Ships type stubs and installs on Python 3.9. The code and the files on disk are unchanged from 5.8.0.
 
 ### Packaging
 
