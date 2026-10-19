@@ -21,7 +21,6 @@ from ._types import Ignore, KeyValuePair, Memoized, NullablePair, ServerSide
 
 _AnyDefault: Iterable[Any] = ()
 _AnyT = TypeVar('_AnyT', bound=Any)
-_ValueWithoutDefaultT = TypeVar('_ValueWithoutDefaultT', bound=Any)
 _KeyT = TypeVar('_KeyT', bound=Any, default=Any)
 _ValueT = TypeVar('_ValueT', bound=Any, default=Any)
 _T = TypeVar('_T')
@@ -95,8 +94,8 @@ class Index(MutableMapping[_KeyT, _ValueT], Generic[_KeyT, _ValueT]):
     ) -> None: ...
     @classmethod
     def fromcache(
-        cls, cache: Cache, *args: Any, **kwargs: _ValueWithoutDefaultT
-    ) -> Index[str, _ValueWithoutDefaultT]: ...
+        cls, cache: Cache, *args: Any, **kwargs: Any
+    ) -> Index[Any, Any]: ...
     @property
     def cache(self) -> Cache: ...
     @property
