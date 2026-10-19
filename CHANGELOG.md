@@ -2,6 +2,13 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Packaging
+
+- The package ships type information: `py.typed` and `.pyi` stubs covering the API, including `SafeDisk`, `SafeDisk.with_types`, `Disk.with_options`, `configure`, `default_disk`, `ReadOnlyError`, `read_only`, `store_time`, `iterkeys(tag=...)` and the `disk` arguments of `Deque`, `Index` and `FanoutCache.deque` and `index`, so mypy and pyright check code that uses the fork without a separate stubs package. `mypy.stubtest` reports no differences from the runtime (PR #29).
+- `requires-python` is `>=3.9`, so the fork installs on Python 3.9; the test suite passes there unchanged (PR #29).
+
 ## 5.8.0 (2026-10-18)
 
 The package is now imported as `diskcache_community`, so it installs next to the upstream `diskcache` package instead of replacing it. The `cache.db` schema, the file layout, the serialization modes, the memoize key format and the persisted settings are unchanged, so a 5.6.3 process opens a directory written by 5.8.0 and the reverse. `SafeDisk` stays opt-in and gains an allowlist for your own classes, a process-wide default disk selects it for caches that libraries create, and caches can treat unreadable entries as missing.
