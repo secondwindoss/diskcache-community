@@ -87,6 +87,8 @@ def test_default_still_raises(directory):
         corrupt(cache, 'key')
         with pytest.raises(pickle.UnpicklingError):
             cache.get('key')
+        with pytest.raises(pickle.UnpicklingError):
+            cache.get('key', tag=True)
         assert count(cache) == 1
 
 
