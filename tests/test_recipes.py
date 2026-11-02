@@ -115,3 +115,23 @@ def test_memoize_stampede_ignore(cache):
     assert func(1, session=object()) == 1
     assert func.__cache_key__(1, 2) == ('ignored', 1, None)
     assert func.__cache_key__(1, session=2) == ('ignored', 1, None)
+
+
+def test_memoize_stampede_early_recompute_with_safedisk():
+    calls = []
+
+    with dc.Cache(disk=dc.SafeDisk) as cache:
+
+        @dc.memoize_stampede(cache, 60, beta=1e12)
+        def worker():
+            time.sleep(0.01)
+            calls.append(1)
+            return len(calls)
+
+        assert worker() == 1
+
+        start = time.time()
+        while worker() == 1:
+            assert time.time() - start < 10
+
+    shutil.rmtree(cache.directory, ignore_errors=True)
