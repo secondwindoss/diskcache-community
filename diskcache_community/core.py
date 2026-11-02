@@ -1472,7 +1472,7 @@ _UNREADABLE_LOGGED: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 _NOT_UNREADABLE = (OSError, MemoryError, RecursionError)
 
 # Connections inherited from a parent process, kept open on purpose.
-_INHERITED_CONNECTIONS: list[sqlite3.Connection] = []
+_INHERITED_CONNECTIONS: 'list[sqlite3.Connection]' = []
 
 
 def _before_fork():

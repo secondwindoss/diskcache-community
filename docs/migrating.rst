@@ -15,7 +15,7 @@ Replace the dependency and the imports. Cache directories need no changes:
 diskcache-community keeps the public API of diskcache 5.6.3, the ``cache.db``
 schema, the file layout, the serialization modes, the persisted settings and
 the memoize key format. A directory written by 5.6.3 opens with the fork, and
-a directory written by the fork opens with 5.6.3. The fork needs Python 3.10
+a directory written by the fork opens with 5.6.3. The fork needs Python 3.8
 or later and has no runtime dependencies.
 
 Steps
