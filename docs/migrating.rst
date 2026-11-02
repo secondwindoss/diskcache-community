@@ -93,8 +93,10 @@ requires it.
 What behaves differently
 ------------------------
 
-These changes from 5.6.3 can be noticed by an application. The
-``CHANGELOG.md`` in the repository lists every change.
+Most applications need no changes for the following: existing cache
+directories open as they are and the defaults behave as before. The cases
+that can be noticed are listed here, and the ``CHANGELOG.md`` in the
+repository lists every change.
 
 * **New directories are created with mode 0700.** That includes missing
   parent directories and the value subdirectories. Existing directories keep

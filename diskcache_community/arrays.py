@@ -235,12 +235,9 @@ class _ArrayPickler(pickle.Pickler):
 class _ArrayUnpickler(SafeUnpickler):
     """Unpickler that reads back what _ArrayPickler wrote.
 
-    A forged row can follow an array with BUILD, which calls its
-    ``__setstate__``. numpy restores an array's internal flags from the dtype
-    in that state without checking them, which is why numpy pickles are
-    refused. The call is harmless here because the dtype slot accepts only a
-    ``numpy.dtype``, and neither the allowlist nor a persistent ID can make
-    one; a test pins that.
+    Array state is rebuilt from the checked ``.npy`` header alone: the dtype
+    slot of a trailing ``BUILD`` accepts only a ``numpy.dtype``, which
+    neither the allowlist nor a persistent ID can produce.
 
     """
 

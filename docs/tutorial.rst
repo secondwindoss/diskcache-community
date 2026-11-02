@@ -18,7 +18,7 @@ Pip & PyPI
 Installing :doc:`DiskCache <index>` is simple with `pip
 <https://pip.pypa.io/en/stable/>`_::
 
-    $ pip install --upgrade diskcache
+    $ pip install --upgrade diskcache-community
 
 The versioning scheme uses `major.minor.micro` with `micro` intended for bug
 fixes, `minor` intended for small features or improvements, and `major`
@@ -1186,10 +1186,12 @@ unreadable entry of each cache is logged as a warning on the
 since they cannot move past it. A value file that has disappeared is a miss
 in either mode, as before.
 
-The entry is deleted for every process that shares the directory, so give
-every reader and writer of a shared cache the same disk: a reader whose
-allowlist is narrower than a writer's would delete entries the writer can
-still read.
+.. note::
+
+   The entry is deleted for every process that shares the directory, so give
+   every reader and writer of a shared cache the same disk: a reader whose
+   allowlist is narrower than a writer's would delete entries the writer can
+   still read.
 
 .. _tutorial-read-only:
 
