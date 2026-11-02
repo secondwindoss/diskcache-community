@@ -1013,11 +1013,11 @@ more than store their fields, such as dataclasses, named tuples, enums and
 pydantic models, because allowing a class lets a crafted pickle create
 instances of it with any field values. numpy classes are refused: numpy
 restores a dtype's internal flags from the pickle without checking them, so a
-crafted array pickle can corrupt memory. Store arrays as bytes instead, for
-example with ``numpy.save(buffer, array, allow_pickle=False)``. A write whose
-value pickles a class outside the allowlist raises :exc:`TypeError` that names
-the class. Calling ``with_types`` on the returned class adds to its allowlist,
-and a cache that uses it can be pickled as usual.
+crafted array pickle can corrupt memory. Use :meth:`SafeDisk.with_numpy
+<diskcache_community.SafeDisk.with_numpy>` to store arrays instead. A write
+whose value pickles a class outside the allowlist raises :exc:`TypeError` that
+names the class. Calling ``with_types`` on the returned class adds to its
+allowlist, and a cache that uses it can be pickled as usual.
 
 .. _tutorial-safejsondisk:
 
@@ -1056,6 +1056,69 @@ extend and :meth:`SafeDisk.with_types
 ``SafeJSONDisk.with_options(on_error='miss')`` to drop refused entries, as
 described in :ref:`tutorial-unreadable-entries`.
 
+.. _tutorial-with-numpy:
+
+Storing numpy arrays
+....................
+
+:class:`SafeDisk <diskcache_community.SafeDisk>` refuses numpy, because
+unpickling an array is not memory-safe. :meth:`SafeDisk.with_numpy
+<diskcache_community.SafeDisk.with_numpy>` returns a subclass that stores
+arrays without pickling them, by writing them through pickle's persistent IDs
+in numpy's ``.npy`` format:
+
+.. code-block:: python
+
+    import numpy
+
+    from diskcache_community import Cache, SafeDisk
+
+    ArrayDisk = SafeDisk.with_numpy()
+    cache = Cache('/tmp/mycache', disk=ArrayDisk)
+    cache['embedding'] = numpy.arange(3.0)
+    cache['result'] = {'scores': numpy.zeros(2), 'best': numpy.float64(1.5)}
+
+* An array anywhere in a value is stored as its ``.npy`` header and its data,
+  including inside classes allowed with :meth:`SafeDisk.with_types
+  <diskcache_community.SafeDisk.with_types>`, which can be called before or
+  after ``with_numpy``. The header is checked against the data before it is
+  read back. An array that appears twice in a value is stored once and is one
+  array when read back. Writing copies the array once, into the row, as the
+  default :class:`Disk <diskcache_community.Disk>` does, and reading takes no
+  second copy of it.
+* A value outside the standard-library types is pickled at protocol 5 or
+  higher, whatever ``disk_pickle_protocol`` says, so that array data can be
+  stored in place. Other values use the configured protocol.
+* numpy booleans, integers, floats, complex numbers and strings read back as
+  the same numpy type with the same value, including NaN.
+* Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
+  ``numpy.matrix``, ``datetime64`` and ``timedelta64`` scalars, and arrays that
+  the reader would refuse, such as a dtype with no width, raise
+  :exc:`TypeError` when written.
+
+Keys behave as in :class:`SafeDisk <diskcache_community.SafeDisk>`, so numpy
+values in a key raise :exc:`TypeError`, including the arguments of a function
+decorated with :meth:`memoize <diskcache_community.Cache.memoize>`.
+
+Everything else behaves as in :class:`SafeDisk
+<diskcache_community.SafeDisk>`, and ``with_options(on_error='miss')`` works
+the same way. An entry whose array data has been tampered with raises
+:exc:`pickle.UnpicklingError` when read, or reads as missing with
+``on_error='miss'``.
+
+A value with no numpy in it is an ordinary pickle. An entry holding numpy data
+is not readable by any other disk, including a plain :class:`SafeDisk
+<diskcache_community.SafeDisk>`, or by diskcache 5.6.3: they open the
+directory and raise :exc:`pickle.UnpicklingError` for that entry, and a disk
+with ``on_error='miss'`` deletes it. The choice of disk is not stored in the
+cache directory, so select this disk in every process that shares a directory.
+To select it from the environment, define it in a module of your own and name
+it in ``DISKCACHE_DISK``, such as ``myapp.cache:ArrayDisk``. A process that
+cannot import numpy raises :exc:`ImportError` for an entry holding numpy data
+and keeps it, even with ``on_error='miss'``. Arrays that the default
+:class:`Disk <diskcache_community.Disk>` pickled earlier are refused like any
+other pickle outside the allowlist, so compute them again.
+
 .. _tutorial-default-disk:
 
 Default disk
@@ -1081,8 +1144,10 @@ or in the environment, without changing any code:
     DISKCACHE_DISK=safe python app.py
 
 ``DISKCACHE_DISK`` takes ``safe``, ``default``, or the import path of a disk
-class such as ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES``
-and ``DISKCACHE_SAFE_MODULES`` list classes and module names, comma-separated,
+class such as ``myapp.cache:AppDisk``. With ``safe`` or a subclass of
+:class:`SafeDisk <diskcache_community.SafeDisk>`, such as one built with
+``with_numpy``, ``DISKCACHE_SAFE_TYPES`` and
+``DISKCACHE_SAFE_MODULES`` list classes and module names, comma-separated,
 passed to :meth:`SafeDisk.with_types
 <diskcache_community.SafeDisk.with_types>`. A disk passed explicitly always
 wins, then :func:`configure <diskcache_community.configure>`, then the
@@ -1112,7 +1177,9 @@ suits a cache whose entries can always be computed again:
 ``pop``, ``pull``, ``peek`` and ``peekitem`` move on to the next item, and
 iteration, including the items and values of an :class:`Index
 <diskcache_community.Index>`, skips entries that cannot be read. ``len`` and
-``in`` still count an unreadable entry until a read deletes it. The first
+``in`` still count an unreadable entry until a read deletes it, so code like
+``if key in cache: return cache[key]`` can raise :exc:`KeyError` for such an
+entry; use ``cache.get(key, default)`` instead. The first
 unreadable entry of each cache is logged as a warning on the
 ``diskcache_community`` logger. A read-only cache returns the default from
 ``get`` without deleting the entry, and its ``peek`` and ``peekitem`` raise,

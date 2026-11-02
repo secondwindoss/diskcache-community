@@ -9,6 +9,7 @@ from typing import (
     Generator,
     Generic,
     Literal,
+    NoReturn,
     overload,
 )
 
@@ -188,12 +189,17 @@ class SafeUnpickler(pickle.Unpickler):
 class SafeDisk(Disk):
     safe_types: frozenset[type]
     safe_modules: tuple[str, ...]
+    safe_numpy: bool
     @classmethod
     def with_types(
         cls, *types: type, modules: tuple[str, ...] = ...
     ) -> type[Self]: ...
+    @classmethod
+    def with_numpy(cls) -> type[Self]: ...
 
-class SafeJSONDisk(JSONDisk, SafeDisk): ...
+class SafeJSONDisk(JSONDisk, SafeDisk):
+    @classmethod
+    def with_numpy(cls) -> NoReturn: ...
 
 def configure(disk: type[Disk] | None) -> None: ...
 def default_disk() -> type[Disk]: ...

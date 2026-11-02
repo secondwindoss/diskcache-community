@@ -314,9 +314,11 @@ class Disk:
         :return: (size, mode, filename, value) tuple for Cache table
 
         """
-        # pylint: disable=unidiomatic-typecheck
+        # pylint: disable=unidiomatic-typecheck,comparison-with-itself
         type_value = type(value)
         min_file_size = self.min_file_size
+        # SQLite stores NaN as NULL, so NaN goes to a pickle below.
+        raw_float = type_value is float and value == value
 
         if (
             (type_value is str and len(value) < min_file_size)
@@ -324,7 +326,7 @@ class Disk:
                 type_value is int
                 and -9223372036854775808 <= value <= 9223372036854775807
             )
-            or (type_value is float)
+            or raw_float
         ):
             return 0, MODE_RAW, None, value
         elif type_value is bytes:
@@ -347,13 +349,16 @@ class Disk:
             return size, MODE_BINARY, filename, None
         else:
             result = pickle.dumps(value, protocol=self.pickle_protocol)
+            return self._store_pickle(result, value, key)
 
-            if len(result) < min_file_size:
-                return 0, MODE_PICKLE, None, sqlite3.Binary(result)
-            else:
-                filename, full_path = self.filename(key, value)
-                self._write(full_path, result, 'xb')
-                return len(result), MODE_PICKLE, filename, None
+    def _store_pickle(self, result, value, key):
+        """Return Cache table fields for `result`, the pickle of `value`."""
+        if len(result) < self.min_file_size:
+            return 0, MODE_PICKLE, None, sqlite3.Binary(result)
+        else:
+            filename, full_path = self.filename(key, value)
+            self._write(full_path, result, 'xb')
+            return len(result), MODE_PICKLE, filename, None
 
     def _write(self, full_path, iterator_or_bytes, mode, encoding=None):
         full_dir, _ = op.split(full_path)
@@ -605,6 +610,49 @@ _PICKLE_GET_OPS = frozenset({'BINGET', 'GET', 'LONG_BINGET'})
 _PICKLE_PUT_OPS = frozenset({'BINPUT', 'LONG_BINPUT', 'PUT'})
 _PICKLE_EXT_OPS = frozenset({'EXT1', 'EXT2', 'EXT4'})
 
+# Opcodes whose argument is a length-prefixed string or buffer, with the width
+# of the length, and the longest one the scan reads. A longer one is an array
+# or a large string in a value, which cannot name a module, so it is skipped
+# instead of copied.
+_PICKLE_BLOB_OPS = {
+    'BINBYTES': 4,
+    'BINBYTES8': 8,
+    'BINUNICODE': 4,
+    'BINUNICODE8': 8,
+    'BYTEARRAY8': 8,
+}
+_PICKLE_BLOB_LIMIT = 4096
+
+
+def _pickle_ops(data):
+    """Yield (opcode, arg) for the pickle `data`, as pickletools.genops does.
+
+    `data` was written by pickle, so it ends with STOP. The argument of a
+    blob opcode over _PICKLE_BLOB_LIMIT bytes is None.
+
+    """
+    file = io.BytesIO(data)
+
+    while True:
+        opcode = pickletools.code2op[file.read(1).decode('latin-1')]
+        width = _PICKLE_BLOB_OPS.get(opcode.name)
+
+        if width is None:
+            arg = None if opcode.arg is None else opcode.arg.reader(file)
+        else:
+            size = int.from_bytes(file.read(width), 'little')
+            if size > _PICKLE_BLOB_LIMIT:
+                file.seek(size, io.SEEK_CUR)
+                arg = None
+            else:
+                file.seek(-width, io.SEEK_CUR)
+                arg = opcode.arg.reader(file)
+
+        yield opcode, arg
+
+        if opcode.name == 'STOP':
+            return
+
 
 def _in_modules(module, modules):
     """Return True when `module` is one of `modules` or inside one."""
@@ -626,7 +674,7 @@ def _pickle_globals(data):
     pushed = []
     memo = {}
 
-    for opcode, arg, _ in pickletools.genops(data):
+    for opcode, arg in _pickle_ops(data):
         name = opcode.name
 
         if name in _PICKLE_EXT_OPS:
@@ -800,6 +848,7 @@ class SafeDisk(Disk):
 
     safe_types: frozenset = frozenset()
     safe_modules: tuple = ()
+    safe_numpy: bool = False
 
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         super().__init__(directory, min_file_size, pickle_protocol)
@@ -820,8 +869,8 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        numpy classes are refused, see ``UNSAFE_MODULES``; store arrays as
-        bytes, for example with ``numpy.save(..., allow_pickle=False)``.
+        numpy classes are refused, see ``UNSAFE_MODULES``; use
+        :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -842,7 +891,10 @@ class SafeDisk(Disk):
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
             if _in_modules(entry.__module__, UNSAFE_MODULES):
-                raise ValueError('with_types refuses the class %r' % (entry,))
+                raise ValueError(
+                    'with_types refuses the class %r; use with_numpy() to'
+                    ' store arrays' % (entry,)
+                )
 
         if isinstance(modules, str):
             modules = (modules,)
@@ -858,7 +910,10 @@ class SafeDisk(Disk):
                 or _in_modules(unsafe, (prefix,))
                 for unsafe in UNSAFE_MODULES
             ):
-                raise ValueError('with_types refuses the module %r' % (entry,))
+                raise ValueError(
+                    'with_types refuses the module %r; use with_numpy() to'
+                    ' store arrays' % (entry,)
+                )
             prefixes.append(prefix)
 
         return _derive_disk(
@@ -871,13 +926,47 @@ class SafeDisk(Disk):
             },
         )
 
-    def _unpickler(self, data):
+    @classmethod
+    def with_numpy(cls):
+        """Return a SafeDisk subclass that also stores numpy arrays.
+
+        :class:`SafeDisk` refuses numpy, because unpickling an array is not
+        memory-safe (see ``UNSAFE_MODULES``). The returned class writes
+        arrays through pickle's persistent IDs in numpy's ``.npy`` format
+        with ``allow_pickle=False``, anywhere in a value, and checks each
+        header before it reads an array back. numpy scalars keep their type.
+        Object arrays, ``ndarray`` subclasses and other numpy scalars raise
+        :exc:`TypeError` when written. It combines with :meth:`with_types`
+        and :meth:`with_options` in any order.
+
+        A value with no numpy in it is an ordinary pickle. An entry holding
+        numpy data cannot be read by any other disk, or by diskcache 5.6.3:
+        they raise :exc:`pickle.UnpicklingError` for it, and a disk with
+        ``on_error='miss'`` deletes it, so select this disk in every process
+        that shares the directory. A process without numpy raises
+        :exc:`ImportError` for such an entry and keeps it.
+
+        >>> ArrayDisk = SafeDisk.with_numpy()
+        >>> ArrayDisk.safe_numpy
+        True
+
+        :return: SafeDisk subclass to pass as ``disk=``
+
+        """
+        return _derive_disk(cls, {'safe_numpy': True})
+
+    def _plain_unpickler(self, file):
         return SafeUnpickler(
-            io.BytesIO(data),
+            file,
             SAFE_PICKLE_NAMES,
             self.safe_types,
             self.safe_modules,
         )
+
+    def _unpickler(self, file):
+        if self.safe_numpy:
+            return arrays.unpickler(self, file)
+        return self._plain_unpickler(file)
 
     def _extended(self):
         return bool(self.safe_types or self.safe_modules)
@@ -892,12 +981,17 @@ class SafeDisk(Disk):
         else:
             return
 
-        data = pickle.dumps(obj, protocol=self.pickle_protocol)
+        self._check_pickle(
+            pickle.dumps(obj, protocol=self.pickle_protocol), obj, what
+        )
+
+    def _check_pickle(self, data, obj, what):
+        """Raise TypeError unless the reader would accept the pickle `data`."""
         names = _pickle_globals(data)
 
         if names is None:
             try:
-                self._unpickler(data).load()
+                self._unpickler(io.BytesIO(data)).load()
             except pickle.UnpicklingError as error:
                 raise TypeError(
                     'SafeDisk cannot store %s: %s' % (what, error)
@@ -906,7 +1000,7 @@ class SafeDisk(Disk):
 
         for module, name in sorted(names):
             try:
-                self._unpickler(b'').find_class(module, name)
+                self._unpickler(io.BytesIO()).find_class(module, name)
             except pickle.UnpicklingError:
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s: it pickles'
@@ -1003,12 +1097,17 @@ class SafeDisk(Disk):
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        return self._unpickler(key).load()
+        # Keys never hold numpy, so a key row gets no persistent IDs.
+        return self._plain_unpickler(io.BytesIO(key)).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck
-        if not read and type(value) not in (bytes, str, int, float):
-            self._check_object(value, 'value')
+        if read or type(value) in (bytes, str, int, float):
+            return super().store(value, read, key=key)
+        numpy = sys.modules.get('numpy') if self.safe_numpy else None
+        if numpy is not None:
+            return arrays.store(self, numpy, value, key)
+        self._check_object(value, 'value')
         return super().store(value, read, key=key)
 
     def fetch(self, mode, filename, value, read):
@@ -1017,8 +1116,9 @@ class SafeDisk(Disk):
 
         if mode == MODE_PICKLE:
             if value is None:
-                value = super().fetch(MODE_BINARY, filename, None, False)
-            return self._unpickler(value).load()
+                with super().fetch(MODE_BINARY, filename, None, True) as file:
+                    return self._unpickler(file).load()
+            return self._unpickler(io.BytesIO(value)).load()
 
         return super().fetch(mode, filename, value, read)
 
@@ -1043,9 +1143,13 @@ class SafeJSONDisk(JSONDisk, SafeDisk):
     The on-disk format is the one :class:`JSONDisk` writes, so a directory
     written with either opens with the other. Keys and values are limited to
     what JSON can hold, and with no pickles to read there is no allowlist for
-    :meth:`SafeDisk.with_types` to extend.
+    :meth:`SafeDisk.with_types` to extend; :meth:`SafeDisk.with_numpy` raises.
 
     """
+
+    @classmethod
+    def with_numpy(cls):
+        raise TypeError('SafeJSONDisk stores only JSON, not numpy arrays')
 
     def get(self, key, raw):
         if not raw:
@@ -1117,10 +1221,10 @@ def default_disk():
 
     ``DISKCACHE_DISK`` is empty or ``default`` for :class:`Disk`, ``safe``
     for :class:`SafeDisk`, or the import path of a Disk subclass, such as
-    ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES`` lists
-    classes to allow by import path and ``DISKCACHE_SAFE_MODULES`` lists
-    module names whose classes to allow, both comma-separated, as
-    :meth:`SafeDisk.with_types` takes them.
+    ``myapp.cache:AppDisk``. With ``safe`` or a SafeDisk subclass,
+    ``DISKCACHE_SAFE_TYPES`` lists classes to allow by import path and
+    ``DISKCACHE_SAFE_MODULES`` lists module names whose classes to allow,
+    both comma-separated, as :meth:`SafeDisk.with_types` takes them.
 
     :return: Disk type or subclass
     :raises ValueError: if an environment variable is invalid
@@ -1171,27 +1275,26 @@ def _disk_from_environment(name, types, modules):
     extras = types.strip() or modules.strip()
 
     if keyword == 'safe':
-        classes = [
-            _import_object(entry, ENV_SAFE_TYPES)
-            for entry in _split_list(types)
-        ]
-        prefixes = _split_list(modules)
-        if not (classes or prefixes):
-            return SafeDisk
-        return SafeDisk.with_types(*classes, modules=prefixes)
+        disk = SafeDisk
+    elif keyword in ('', 'default'):
+        disk = Disk
+    else:
+        disk = _import_object(name, ENV_DISK)
+        _check_disk_type(disk, ENV_DISK)
 
-    if extras:
+    if not extras:
+        return disk
+
+    if not issubclass(disk, SafeDisk):
         raise ValueError(
-            '%s and %s apply only with %s=safe'
+            '%s and %s apply only with %s=safe or a SafeDisk subclass'
             % (ENV_SAFE_TYPES, ENV_SAFE_MODULES, ENV_DISK)
         )
 
-    if keyword in ('', 'default'):
-        return Disk
-
-    disk = _import_object(name, ENV_DISK)
-    _check_disk_type(disk, ENV_DISK)
-    return disk
+    classes = [
+        _import_object(entry, ENV_SAFE_TYPES) for entry in _split_list(types)
+    ]
+    return disk.with_types(*classes, modules=_split_list(modules))
 
 
 def _meta_result(value, expire_time, tag, store_time, meta=(None, None, None)):
@@ -1500,9 +1603,19 @@ _CACHES: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 # Caches that have logged an unreadable entry as a warning already.
 _UNREADABLE_LOGGED: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 
+
+class _ReaderMissing(ImportError):
+    """A disk needs a package that is not installed to read an entry.
+
+    Unlike a pickle that names a class that no longer exists, which raises an
+    ordinary ImportError, this says nothing about the entry itself.
+
+    """
+
+
 # Errors that on_error='miss' never treats as an unreadable entry: a missing
 # value file is already a miss, and the others say nothing about the entry.
-_NOT_UNREADABLE = (OSError, MemoryError, RecursionError)
+_NOT_UNREADABLE = (OSError, MemoryError, RecursionError, _ReaderMissing)
 
 # Connections inherited from a parent process, kept open on purpose.
 _INHERITED_CONNECTIONS: 'list[sqlite3.Connection]' = []
@@ -3922,3 +4035,8 @@ class Cache:
 
         setattr(self, key, value)
         return value
+
+
+# arrays imports the classes above, so it is imported once they exist.
+# pylint: disable=wrong-import-position,cyclic-import
+from . import arrays  # noqa: E402  # isort: skip

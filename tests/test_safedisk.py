@@ -640,3 +640,18 @@ def test_django_disk_option(directory):
 
     with pytest.raises(ImportError):
         dc.DjangoCache(directory, {'DISK': 'diskcache_community.NoSuchDisk'})
+
+
+def test_file_backed_pickle_reads_from_its_file(directory):
+    with dc.Cache(directory, disk=dc.SafeDisk, disk_min_file_size=0) as cache:
+        cache['key'] = {'a': [1, 2]}
+        assert cache['key'] == {'a': [1, 2]}
+        assert cache.check() == []
+
+
+def test_missing_file_for_a_pickle_is_a_miss(directory):
+    with dc.Cache(directory, disk=dc.SafeDisk, disk_min_file_size=0) as cache:
+        cache['key'] = {'a': [1, 2]}
+        filename = cache._sql('SELECT filename FROM Cache').fetchone()[0]
+        os.remove(op.join(directory, filename))
+        assert cache.get('key', 'default') == 'default'

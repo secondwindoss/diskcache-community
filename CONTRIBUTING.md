@@ -36,16 +36,3 @@ tox -e bluecheck,isortcheck,flake8,mypy,pylint,doc8,rstcheck,docs
 Work on a branch and open a pull request against `master`. CI runs the lint checks, the test suite on Python 3.10 to 3.14 on Linux, macOS and Windows, the Django 4.2 and 6.0 jobs and an import check without Django, and a pull request merges once CI is green and the change has been reviewed. Keep each pull request to one change, and write commit subjects as one sentence that says what the change does. In the description, say what was wrong, list the concrete changes, and say what you ran to check them.
 
 Fixes imported from upstream pull requests keep their original commits and authors; the description says which upstream pull request is imported. Entries for merged changes go into [CHANGELOG.md](CHANGELOG.md) under `Unreleased`.
-
-## Compatibility contract
-
-This fork publishes the same library under a new distribution name, `diskcache-community`, and a new import name, `diskcache_community`, so it installs next to the upstream `diskcache` package. The following stay as upstream left them, and a change to any of them is a compatibility break that needs a major version:
-
-- the import name, `import diskcache_community` (it replaced `import diskcache` in 5.8.0, before any dependent used the fork), and the public API exported by `diskcache_community/__init__.py`;
-- the `cache.db` schema: the `Settings` and `Cache` tables, the value modes 1 to 4, and the index and trigger names;
-- the directory layout: `<dir>/ab/cd/<28 hex>.val` for values and `%03d` for `FanoutCache` shards;
-- the `RAW`, `BINARY`, `TEXT` and `PICKLE` serialization and the bytes `JSONDisk` writes;
-- the key format `memoize` derives from a call;
-- the persisted `Settings` keys; no new `disk_*` or `Settings` key before 6.0.0.
-
-A process running 5.6.3 must be able to open a directory written by this fork, and the reverse. Golden fixtures written by the 5.6.3 wheel guard this in the test suite.
