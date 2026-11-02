@@ -46,7 +46,7 @@ This fork publishes the same library under a new distribution name, `diskcache-c
 - the directory layout: `<dir>/ab/cd/<28 hex>.val` for values and `%03d` for `FanoutCache` shards;
 - the `RAW`, `BINARY`, `TEXT` and `PICKLE` serialization and the bytes `JSONDisk` writes;
 - the key format `memoize` derives from a call;
-- the row format `SafeArrayDisk` writes: a persistent ID of `('npy', <bytearray of .npy bytes>)` or `('scalar', <type name>, <value>)` in a pickle of protocol 5 or higher, with `tests/test_safearraydisk.py` pinning it;
+- the row format `SafeDisk.with_numpy()` writes: a persistent ID of `('npy', <bytearray of .npy bytes>)` or `('scalar', <type name>, <value>)` in a pickle of protocol 5 or higher, with `tests/test_safedisk_numpy.py` pinning it;
 - the persisted `Settings` keys; no new `disk_*` or `Settings` key before 6.0.0.
 
-A process running 5.6.3 must be able to open a directory written by this fork, and the reverse. Entries a process wrote through `SafeArrayDisk` that hold numpy data are the one exception to reading them back: 5.6.3 opens the directory and raises `UnpicklingError` for those entries. Golden fixtures written by the 5.6.3 wheel guard this in the test suite.
+A process running 5.6.3 must be able to open a directory written by this fork, and the reverse. Entries a process wrote through `SafeDisk.with_numpy()` that hold numpy data are the one exception to reading them back: 5.6.3 opens the directory and raises `UnpicklingError` for those entries. Golden fixtures written by the 5.6.3 wheel guard this in the test suite.

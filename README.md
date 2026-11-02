@@ -112,8 +112,8 @@ cache.
   semaphores and throttling
 - Thread-safe and process-safe, with fork-safe connection handling
 - Read-only mode, automatic when the directory is not writable
-- Opt-in `SafeDisk`, `SafeJSONDisk` and `SafeArrayDisk` for caches whose
-  directory other users can write to
+- Opt-in `SafeDisk` and `SafeJSONDisk` for caches whose directory other
+  users can write to, with `SafeDisk.with_numpy()` for numpy arrays
 - Pure Python on top of the standard library `sqlite3`; no server, no compiler
 - Tested on CPython 3.10 to 3.14 on Linux, macOS and Windows
 - Gets in about 2.6 µs and sets in about 19 µs on an Apple M5 Pro in the

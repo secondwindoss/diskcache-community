@@ -805,6 +805,7 @@ class SafeDisk(Disk):
 
     safe_types: frozenset = frozenset()
     safe_modules: tuple = ()
+    safe_numpy: bool = False
 
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         super().__init__(directory, min_file_size, pickle_protocol)
@@ -826,8 +827,7 @@ class SafeDisk(Disk):
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
         numpy classes are refused, see ``UNSAFE_MODULES``; use
-        :class:`SafeArrayDisk <diskcache_community.SafeArrayDisk>` to store
-        arrays.
+        :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -848,7 +848,10 @@ class SafeDisk(Disk):
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
             if _in_modules(entry.__module__, UNSAFE_MODULES):
-                raise ValueError('with_types refuses the class %r' % (entry,))
+                raise ValueError(
+                    'with_types refuses the class %r; use with_numpy() to'
+                    ' store arrays' % (entry,)
+                )
 
         if isinstance(modules, str):
             modules = (modules,)
@@ -864,7 +867,10 @@ class SafeDisk(Disk):
                 or _in_modules(unsafe, (prefix,))
                 for unsafe in UNSAFE_MODULES
             ):
-                raise ValueError('with_types refuses the module %r' % (entry,))
+                raise ValueError(
+                    'with_types refuses the module %r; use with_numpy() to'
+                    ' store arrays' % (entry,)
+                )
             prefixes.append(prefix)
 
         return _derive_disk(
@@ -877,13 +883,47 @@ class SafeDisk(Disk):
             },
         )
 
-    def _unpickler(self, file):
+    @classmethod
+    def with_numpy(cls):
+        """Return a SafeDisk subclass that also stores numpy arrays.
+
+        :class:`SafeDisk` refuses numpy, because unpickling an array is not
+        memory-safe (see ``UNSAFE_MODULES``). The returned class writes
+        arrays through pickle's persistent IDs in numpy's ``.npy`` format
+        with ``allow_pickle=False``, anywhere in a value, and checks each
+        header before it reads an array back. numpy scalars keep their type.
+        Object arrays, ``ndarray`` subclasses and other numpy scalars raise
+        :exc:`TypeError` when written. It combines with :meth:`with_types`
+        and :meth:`with_options` in any order.
+
+        A value with no numpy in it is an ordinary pickle. An entry holding
+        numpy data cannot be read by any other disk, or by diskcache 5.6.3:
+        they raise :exc:`pickle.UnpicklingError` for it, and a disk with
+        ``on_error='miss'`` deletes it, so select this disk in every process
+        that shares the directory. A process without numpy raises
+        :exc:`ImportError` for such an entry and keeps it.
+
+        >>> ArrayDisk = SafeDisk.with_numpy()
+        >>> ArrayDisk.safe_numpy
+        True
+
+        :return: SafeDisk subclass to pass as ``disk=``
+
+        """
+        return _derive_disk(cls, {'safe_numpy': True})
+
+    def _plain_unpickler(self, file):
         return SafeUnpickler(
             file,
             SAFE_PICKLE_NAMES,
             self.safe_types,
             self.safe_modules,
         )
+
+    def _unpickler(self, file):
+        if self.safe_numpy:
+            return arrays.unpickler(self, file)
+        return self._plain_unpickler(file)
 
     def _extended(self):
         return bool(self.safe_types or self.safe_modules)
@@ -1014,12 +1054,17 @@ class SafeDisk(Disk):
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        return self._unpickler(io.BytesIO(key)).load()
+        # Keys never hold numpy, so a key row gets no persistent IDs.
+        return self._plain_unpickler(io.BytesIO(key)).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck
-        if not read and type(value) not in (bytes, str, int, float):
-            self._check_object(value, 'value')
+        if read or type(value) in (bytes, str, int, float):
+            return super().store(value, read, key=key)
+        numpy = sys.modules.get('numpy') if self.safe_numpy else None
+        if numpy is not None:
+            return arrays.store(self, numpy, value, key)
+        self._check_object(value, 'value')
         return super().store(value, read, key=key)
 
     def fetch(self, mode, filename, value, read):
@@ -1055,9 +1100,13 @@ class SafeJSONDisk(JSONDisk, SafeDisk):
     The on-disk format is the one :class:`JSONDisk` writes, so a directory
     written with either opens with the other. Keys and values are limited to
     what JSON can hold, and with no pickles to read there is no allowlist for
-    :meth:`SafeDisk.with_types` to extend.
+    :meth:`SafeDisk.with_types` to extend; :meth:`SafeDisk.with_numpy` raises.
 
     """
+
+    @classmethod
+    def with_numpy(cls):
+        raise TypeError('SafeJSONDisk stores only JSON, not numpy arrays')
 
     def get(self, key, raw):
         if not raw:
@@ -3943,3 +3992,8 @@ class Cache:
 
         setattr(self, key, value)
         return value
+
+
+# arrays imports the classes above, so it is imported once they exist.
+# pylint: disable=wrong-import-position,cyclic-import
+from . import arrays  # noqa: E402  # isort: skip

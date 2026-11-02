@@ -3,16 +3,8 @@
 import io
 import math
 import pickle
-import sys
 
-from .core import (
-    SAFE_PICKLE_NAMES,
-    UNKNOWN,
-    Disk,
-    SafeDisk,
-    SafeUnpickler,
-    _ReaderMissing,
-)
+from .core import SAFE_PICKLE_NAMES, Disk, SafeUnpickler, _ReaderMissing
 
 # Pickle protocol 5 is the first that stores a bytearray in place, so that
 # reading a file-backed entry needs no second copy of its array.
@@ -51,7 +43,7 @@ def _import_numpy():
         import numpy
     except ImportError as error:
         raise _ReaderMissing(
-            'SafeArrayDisk needs numpy to read this entry'
+            'SafeDisk needs numpy to read this entry'
         ) from error
     return numpy
 
@@ -78,7 +70,7 @@ def _read_header(numpy, data):
             raise ValueError('unsupported .npy version %r' % (version,))
     except Exception as error:
         raise pickle.UnpicklingError(
-            'SafeArrayDisk refuses the array header'
+            'SafeDisk refuses the array header'
         ) from error
 
     shape, fortran, dtype = header
@@ -91,7 +83,7 @@ def _read_header(numpy, data):
         or dtype.itemsize * count != len(data) - offset
         or (count and not dtype.itemsize)
     ):
-        raise pickle.UnpicklingError('SafeArrayDisk refuses the array header')
+        raise pickle.UnpicklingError('SafeDisk refuses the array header')
 
     return shape, fortran, dtype, offset
 
@@ -109,7 +101,7 @@ def _pack_array(numpy, array):
         _read_header(numpy, view)
     except (ValueError, pickle.UnpicklingError) as error:
         raise TypeError(
-            'SafeArrayDisk cannot store an array of dtype %s' % (array.dtype,)
+            'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
         ) from error
     return pickle.PickleBuffer(view)
 
@@ -132,7 +124,7 @@ def _unpack_array(data):
         return array.reshape(shape, order='F' if fortran else 'C')
     except Exception as error:
         raise pickle.UnpicklingError(
-            'SafeArrayDisk refuses the array data'
+            'SafeDisk refuses the array data'
         ) from error
 
 
@@ -142,7 +134,7 @@ def _scalar_name(scalar):
     name = {'U': 'str', 'S': 'bytes'}.get(dtype.kind, dtype.name)
     if name not in _SCALARS:
         raise TypeError(
-            'SafeArrayDisk cannot store a scalar of type numpy.%s'
+            'SafeDisk cannot store a scalar of type numpy.%s'
             % (type(scalar).__name__,)
         )
     return name
@@ -152,16 +144,14 @@ def _unpack_scalar(name, value):
     """Return the numpy scalar `value` of type `name`, which may be forged."""
     # pylint: disable=broad-except,unidiomatic-typecheck
     if type(value) not in _SCALAR_VALUES:
-        raise pickle.UnpicklingError('SafeArrayDisk refuses a scalar')
+        raise pickle.UnpicklingError('SafeDisk refuses a scalar')
 
     numpy = _import_numpy()
 
     try:
         return getattr(numpy, _SCALARS[name])(value)
     except Exception as error:
-        raise pickle.UnpicklingError(
-            'SafeArrayDisk refuses a scalar'
-        ) from error
+        raise pickle.UnpicklingError('SafeDisk refuses a scalar') from error
 
 
 class _ArrayPickler(pickle.Pickler):
@@ -186,7 +176,7 @@ class _ArrayPickler(pickle.Pickler):
         if isinstance(obj, numpy.ndarray):
             if type(obj) is not numpy.ndarray:
                 raise TypeError(
-                    'SafeArrayDisk cannot store a subclass of ndarray: %s.%s'
+                    'SafeDisk cannot store a subclass of ndarray: %s.%s'
                     % (type(obj).__module__, type(obj).__qualname__)
                 )
             # Holding `obj` keeps its id from being reused: pickle's own memo
@@ -204,7 +194,7 @@ class _ArrayPickler(pickle.Pickler):
             value = obj.item()
             if isinstance(value, numpy.generic):
                 raise TypeError(
-                    'SafeArrayDisk cannot store a scalar of type numpy.%s'
+                    'SafeDisk cannot store a scalar of type numpy.%s'
                     % (kind.__name__,)
                 )
             return ('scalar', name, value)
@@ -234,82 +224,50 @@ class _ArrayUnpickler(SafeUnpickler):
                         entry = (payload, _unpack_array(payload))
                         self._arrays[id(payload)] = entry
                     return entry[1]
-        raise pickle.UnpicklingError('SafeArrayDisk refuses a persistent ID')
+        raise pickle.UnpicklingError('SafeDisk refuses a persistent ID')
 
 
-class SafeArrayDisk(SafeDisk):
-    """Disk that stores numpy arrays as ``.npy`` bytes instead of pickles.
+def unpickler(disk, file):
+    """Return the unpickler of `disk`, a SafeDisk with ``safe_numpy`` set."""
+    return _ArrayUnpickler(
+        file,
+        SAFE_PICKLE_NAMES,
+        disk.safe_types,
+        disk.safe_modules,
+    )
 
-    :class:`SafeDisk` refuses numpy, because unpickling an array is not
-    memory-safe (see ``UNSAFE_MODULES``). :class:`SafeArrayDisk` keeps those
-    pickles out of the cache by writing arrays through pickle's persistent IDs
-    in numpy's own format:
 
-    * An array anywhere in a value is saved with ``allow_pickle=False``, and
-      its header is checked before it is read back. That includes the
-      containers :class:`SafeDisk` accepts and the classes allowed with
-      :meth:`SafeDisk.with_types`.
-    * numpy booleans, integers, floats, complex numbers and strings read back
-      as the same numpy type.
-    * Arrays of objects, subclasses of ``ndarray`` such as masked arrays, and
-      other numpy scalars raise :exc:`TypeError` when written.
+def store(disk, numpy, value, key):
+    """Return the Cache table fields of `value`, which may hold numpy data.
 
-    Keys and everything else behave as in :class:`SafeDisk`. numpy stays
-    optional: it is used only for a value that needs it, and a process without
-    it raises :exc:`ImportError` for an entry holding numpy data and keeps the
-    entry, even with ``on_error='miss'``.
-
-    A value with no numpy in it is an ordinary pickle. An entry holding numpy
-    data cannot be read by any other disk, or by diskcache 5.6.3: they raise
-    :exc:`pickle.UnpicklingError` for it, and a disk with ``on_error='miss'``
-    deletes it. Every process that shares a directory should select this disk.
+    `disk` is a SafeDisk with ``safe_numpy`` set and `numpy` the imported
+    module. A value with no numpy in it is stored as an ordinary pickle.
 
     """
+    # pylint: disable=protected-access
+    try:
+        disk._check(value, 'value')
+    except TypeError:
+        pass
+    else:
+        return Disk.store(disk, value, False, key=key)
 
-    def _unpickler(self, file):
-        return _ArrayUnpickler(
-            file,
-            SAFE_PICKLE_NAMES,
-            self.safe_types,
-            self.safe_modules,
-        )
+    buffer = io.BytesIO()
+    protocol = max(disk.pickle_protocol, _MIN_PROTOCOL)
+    pickler = _ArrayPickler(buffer, protocol, numpy)
 
-    def get(self, key, raw):
-        if raw:
-            return super().get(key, raw)
-        # Keys never hold numpy, so a key row gets no persistent IDs.
-        return super()._unpickler(io.BytesIO(key)).load()
+    try:
+        pickler.dump(value)
+    except (pickle.PicklingError, AttributeError) as error:
+        raise TypeError(
+            'SafeDisk cannot store value: %s' % (error,)
+        ) from error
 
-    def store(self, value, read, key=UNKNOWN):
-        # pylint: disable=unidiomatic-typecheck
-        numpy = sys.modules.get('numpy')
+    data = buffer.getvalue()
 
-        if numpy is None or read or type(value) in (bytes, str, int, float):
-            return super().store(value, read, key=key)
+    # Only a reduced object can look up a name, and scanning the pickle
+    # would copy every array in it.
+    if pickler.reduced:
+        disk._check_pickle(data, value, 'value')
 
-        try:
-            self._check(value, 'value')
-        except TypeError:
-            pass
-        else:
-            return Disk.store(self, value, read, key=key)
-
-        buffer = io.BytesIO()
-        protocol = max(self.pickle_protocol, _MIN_PROTOCOL)
-        pickler = _ArrayPickler(buffer, protocol, numpy)
-
-        try:
-            pickler.dump(value)
-        except (pickle.PicklingError, AttributeError) as error:
-            raise TypeError(
-                'SafeArrayDisk cannot store value: %s' % (error,)
-            ) from error
-
-        data = buffer.getvalue()
-
-        # Only a reduced object can look up a name, and scanning the pickle
-        # would copy every array in it.
-        if pickler.reduced:
-            self._check_pickle(data, value, 'value')
-
-        return self._store_pickle(data, value, key)
+    return disk._store_pickle(data, value, key)

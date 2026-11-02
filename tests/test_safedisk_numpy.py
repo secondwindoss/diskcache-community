@@ -1,4 +1,4 @@
-"""Test diskcache_community.SafeArrayDisk."""
+"""Test SafeDisk.with_numpy()."""
 
 import collections as co
 import dataclasses
@@ -17,14 +17,15 @@ import tracemalloc
 import pytest
 
 import diskcache_community as dc
-from diskcache_community import arrays
+from diskcache_community import arrays, core
 from diskcache_community.core import MODE_PICKLE
 
 np = pytest.importorskip('numpy')
 
 pytestmark = pytest.mark.filterwarnings('ignore', category=dc.EmptyDirWarning)
 
-MissDisk = dc.SafeArrayDisk.with_options(on_error='miss')
+ArrayDisk = dc.SafeDisk.with_numpy()
+MissDisk = ArrayDisk.with_options(on_error='miss')
 
 
 def _execute(path):
@@ -180,7 +181,7 @@ def npy_header(header, body=b'', version=1):
     ids=lambda array: '%s-%s' % (array.dtype, array.shape),
 )
 def test_array_round_trip(directory, array):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = array
         same(cache['key'], array)
 
@@ -189,7 +190,7 @@ def test_arrays_in_containers(directory):
     array = np.arange(3.0)
     value = {'a': array, 'b': [array, (array, 1)], 'c': 'text'}
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
         result = cache['key']
 
@@ -215,7 +216,7 @@ def test_arrays_in_the_other_safe_containers(directory, make):
     array = np.arange(2.0)
     value = make(array)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
         result = cache['key']
 
@@ -226,7 +227,7 @@ def test_arrays_in_the_other_safe_containers(directory, make):
 
 def test_arrays_in_allowed_classes(directory):
     array = np.arange(3.0)
-    disk = dc.SafeArrayDisk.with_types(Result, Pair, State)
+    disk = ArrayDisk.with_types(Result, Pair, State)
 
     with dc.Cache(directory, disk=disk) as cache:
         cache['dataclass'] = Result('name', array)
@@ -239,7 +240,7 @@ def test_arrays_in_allowed_classes(directory):
 
 
 def test_arrays_in_classes_outside_the_allowlist_are_refused(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(TypeError):
             cache['key'] = Result('name', np.arange(2.0))
         with pytest.raises(TypeError):
@@ -250,7 +251,7 @@ def test_writing_leaves_the_caller_value_alone(directory):
     array = np.arange(3.0)
     value = {'a': array}
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
 
     assert value['a'] is array
@@ -259,7 +260,7 @@ def test_writing_leaves_the_caller_value_alone(directory):
 def test_shared_arrays_stay_shared_and_are_stored_once(directory):
     array = np.arange(1000.0)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['one'] = [array]
         cache['many'] = [array] * 100
         result = cache['many']
@@ -270,7 +271,7 @@ def test_shared_arrays_stay_shared_and_are_stored_once(directory):
 
 
 def test_temporary_arrays_keep_their_own_data(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = Temporaries(50)
         result = cache['key']
 
@@ -284,7 +285,7 @@ def test_cycles_work(directory):
     value = [array]
     value.append(value)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
         result = cache['key']
 
@@ -298,7 +299,7 @@ def test_shared_structure_stays_linear(directory):
     for _ in range(64):
         value = [value, value]
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
         result = cache['key']
 
@@ -311,7 +312,7 @@ def test_every_pickle_protocol_setting(directory, protocol):
         pytest.skip('protocol not available')
 
     with dc.Cache(
-        directory, disk=dc.SafeArrayDisk, disk_pickle_protocol=protocol
+        directory, disk=ArrayDisk, disk_pickle_protocol=protocol
     ) as cache:
         cache['key'] = {'a': np.arange(2.0), 'b': np.int64(1)}
         same(cache['key']['a'], np.arange(2.0))
@@ -341,7 +342,7 @@ def test_every_pickle_protocol_setting(directory, protocol):
     ids=lambda value: type(value).__name__,
 )
 def test_scalars_keep_their_type_and_value(directory, scalar):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = scalar
         cache['nested'] = {'metrics': [scalar, scalar]}
         assert cache['key'] == scalar
@@ -351,7 +352,7 @@ def test_scalars_keep_their_type_and_value(directory, scalar):
 
 @pytest.mark.parametrize('kind', [np.float64, np.float32, np.float16])
 def test_scalar_nan_and_infinity_are_kept(directory, kind):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['nan'] = kind('nan')
         cache['inf'] = kind('inf')
         cache['nested'] = [kind('nan')]
@@ -362,7 +363,7 @@ def test_scalar_nan_and_infinity_are_kept(directory, kind):
 
 
 def test_scalars_as_dict_keys_keep_their_type(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = {np.int64(1): 'one'}
         assert cache['key'] == {1: 'one'}
         assert type(next(iter(cache['key']))) is np.int64
@@ -383,7 +384,7 @@ def test_scalars_as_dict_keys_keep_their_type(directory):
 def test_scalars_in_the_other_safe_containers(directory, make):
     value = make(np.int64(2))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = value
         result = cache['key']
 
@@ -402,7 +403,7 @@ def test_scalars_in_the_other_safe_containers(directory, make):
     ids=lambda value: type(value).__name__,
 )
 def test_time_scalars_are_refused(directory, scalar):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(TypeError):
             cache['key'] = scalar
         with pytest.raises(TypeError):
@@ -412,7 +413,7 @@ def test_time_scalars_are_refused(directory, scalar):
 def test_long_double_reads_back_or_is_refused(directory):
     value = np.longdouble(1.5)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         try:
             cache['key'] = {'a': value}
         except TypeError:
@@ -430,7 +431,7 @@ def test_long_double_reads_back_or_is_refused(directory):
     ids=['object', 'field', 'subarray'],
 )
 def test_object_arrays_are_refused(directory, array):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(TypeError):
             cache['key'] = array
         assert len(cache) == 0
@@ -471,7 +472,7 @@ def test_arrays_the_reader_would_refuse_fail_at_write(directory, array):
 )
 def test_subclasses_are_refused(directory, make):
     """numpy.save would silently drop what makes them a subclass."""
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(TypeError, match='subclass'):
             cache['key'] = make()
         with pytest.raises(TypeError, match='subclass'):
@@ -479,7 +480,7 @@ def test_subclasses_are_refused(directory, make):
 
 
 def test_numpy_in_a_key_is_refused(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(TypeError):
             cache[(np.int64(1),)] = 'value'
         with pytest.raises(TypeError):
@@ -489,7 +490,7 @@ def test_numpy_in_a_key_is_refused(directory):
 def test_memoize(directory):
     calls = []
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
 
         @cache.memoize()
         def compute(size):
@@ -503,7 +504,7 @@ def test_memoize(directory):
 
 
 def test_memoize_scalar_keeps_its_type_on_a_hit(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
 
         @cache.memoize()
         def compute():
@@ -516,7 +517,7 @@ def test_memoize_scalar_keeps_its_type_on_a_hit(directory):
 
 
 def test_memoize_scalar_argument_is_refused(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
 
         @cache.memoize()
         def compute(value):
@@ -527,7 +528,7 @@ def test_memoize_scalar_argument_is_refused(directory):
 
 
 def test_plain_values_behave_as_in_safedisk(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         value = {'a': [1, 2.5, 'x', None, (True,)], 'b': {'c': b'data'}}
         cache['key'] = value
         assert cache['key'] == value
@@ -538,7 +539,7 @@ def test_plain_values_behave_as_in_safedisk(directory):
 
 
 def test_plain_values_are_ordinary_pickles(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = {'a': [1, 2]}
         names = {
             op.name for op, _, _ in pickletools.genops(row_bytes(cache, 'key'))
@@ -558,7 +559,7 @@ def test_plain_values_skip_the_array_pickler(directory, monkeypatch):
 
     monkeypatch.setattr(arrays, '_ArrayPickler', refuse)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = {'a': [1, 2.5, 'x']}
         assert cache['key'] == {'a': [1, 2.5, 'x']}
 
@@ -568,7 +569,8 @@ def test_plain_values_do_not_import_numpy(directory):
         'import sys\n'
         'import diskcache_community as dc\n'
         'assert "numpy" not in sys.modules\n'
-        'with dc.Cache(sys.argv[1], disk=dc.SafeArrayDisk) as cache:\n'
+        'disk = dc.SafeDisk.with_numpy()\n'
+        'with dc.Cache(sys.argv[1], disk=disk) as cache:\n'
         '    cache["plain"] = {"a": [1, 2]}\n'
         '    assert cache["plain"] == {"a": [1, 2]}\n'
         'assert "numpy" not in sys.modules\n'
@@ -577,28 +579,29 @@ def test_plain_values_do_not_import_numpy(directory):
 
 
 def test_reads_an_array_in_a_process_that_has_not_imported_numpy(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = np.arange(2.0)
 
     code = (
         'import sys\n'
         'import diskcache_community as dc\n'
         'assert "numpy" not in sys.modules\n'
-        'with dc.Cache(sys.argv[1], disk=dc.SafeArrayDisk) as cache:\n'
+        'disk = dc.SafeDisk.with_numpy()\n'
+        'with dc.Cache(sys.argv[1], disk=disk) as cache:\n'
         '    assert cache["key"].tolist() == [0.0, 1.0]\n'
     )
     subprocess.run([sys.executable, '-c', code, directory], check=True)
 
 
 def test_without_numpy_an_entry_raises_and_is_kept(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = np.arange(2.0)
 
     code = (
         'import sys\n'
         'sys.modules["numpy"] = None\n'
         'import diskcache_community as dc\n'
-        'disk = dc.SafeArrayDisk.with_options(on_error="miss")\n'
+        'disk = dc.SafeDisk.with_numpy().with_options(on_error="miss")\n'
         'with dc.Cache(sys.argv[1], disk=disk) as cache:\n'
         '    try:\n'
         '        cache.get("key")\n'
@@ -611,7 +614,7 @@ def test_without_numpy_an_entry_raises_and_is_kept(directory):
     )
     subprocess.run([sys.executable, '-c', code, directory], check=True)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         same(cache['key'], np.arange(2.0))
 
 
@@ -626,14 +629,14 @@ def test_missing_numpy_is_not_an_unreadable_entry(directory, monkeypatch):
 
 
 def test_scalar_without_numpy_raises_and_is_kept(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = np.float64(1.5)
 
     code = (
         'import sys\n'
         'sys.modules["numpy"] = None\n'
         'import diskcache_community as dc\n'
-        'disk = dc.SafeArrayDisk.with_options(on_error="miss")\n'
+        'disk = dc.SafeDisk.with_numpy().with_options(on_error="miss")\n'
         'with dc.Cache(sys.argv[1], disk=disk) as cache:\n'
         '    try:\n'
         '        cache.get("key")\n'
@@ -647,7 +650,7 @@ def test_scalar_without_numpy_raises_and_is_kept(directory):
 
 
 def test_arrays_read_back_writeable(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = np.arange(3.0)
         result = cache['key']
 
@@ -659,7 +662,7 @@ def test_arrays_read_back_writeable(directory):
 def test_fortran_order_round_trip(directory):
     array = np.arange(6.0).reshape(2, 3, order='F')
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = array
         assert cache['key'].tolist() == array.tolist()
 
@@ -667,7 +670,7 @@ def test_fortran_order_round_trip(directory):
 def test_empty_array_of_a_dtype_with_no_width(directory):
     array = np.zeros(0, dtype=[])
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = array
         assert cache['key'].shape == (0,)
 
@@ -675,7 +678,7 @@ def test_empty_array_of_a_dtype_with_no_width(directory):
 def test_writing_a_large_array_copies_it_at_most_twice(directory):
     array = np.arange(4000000.0)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         tracemalloc.start()
         cache['key'] = {'array': array}
         _, peak = tracemalloc.get_traced_memory()
@@ -687,7 +690,7 @@ def test_writing_a_large_array_copies_it_at_most_twice(directory):
 def test_reading_a_large_array_takes_no_second_copy(directory):
     array = np.arange(4000000.0)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = array
         tracemalloc.start()
         result = cache['key']
@@ -699,7 +702,7 @@ def test_reading_a_large_array_takes_no_second_copy(directory):
 
 
 def test_read_true_still_returns_a_file(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache.set('key', io.BytesIO(b'raw'), read=True)
         with cache.get('key', read=True) as reader:
             assert reader.read() == b'raw'
@@ -708,9 +711,7 @@ def test_read_true_still_returns_a_file(directory):
 def test_large_array_lives_in_a_file(directory):
     array = np.arange(100000.0)
 
-    with dc.Cache(
-        directory, disk=dc.SafeArrayDisk, disk_min_file_size=0
-    ) as cache:
+    with dc.Cache(directory, disk=ArrayDisk, disk_min_file_size=0) as cache:
         cache['key'] = array
         same(cache['key'], array)
         assert cache.check() == []
@@ -719,27 +720,23 @@ def test_large_array_lives_in_a_file(directory):
 def test_fanout_index_and_deque(directory):
     array = np.arange(3.0)
 
-    with dc.FanoutCache(
-        op.join(directory, 'fanout'), disk=dc.SafeArrayDisk
-    ) as cache:
+    with dc.FanoutCache(op.join(directory, 'fanout'), disk=ArrayDisk) as cache:
         cache['key'] = array
         same(cache['key'], array)
 
-    index = dc.Index(op.join(directory, 'index'), disk=dc.SafeArrayDisk)
+    index = dc.Index(op.join(directory, 'index'), disk=ArrayDisk)
     index['key'] = array
     same(index['key'], array)
     index.cache.close()
 
-    deque = dc.Deque(
-        directory=op.join(directory, 'deque'), disk=dc.SafeArrayDisk
-    )
+    deque = dc.Deque(directory=op.join(directory, 'deque'), disk=ArrayDisk)
     deque.append(array)
     same(deque.pop(), array)
     deque.cache.close()
 
 
 def test_with_types_and_options_combine(directory):
-    disk = dc.SafeArrayDisk.with_types(Pair).with_options(on_error='miss')
+    disk = ArrayDisk.with_types(Pair).with_options(on_error='miss')
 
     with dc.Cache(directory, disk=disk) as cache:
         cache['pair'] = Pair(1, 2)
@@ -747,14 +744,64 @@ def test_with_types_and_options_combine(directory):
         assert cache['pair'] == Pair(1, 2)
         same(cache['array'], np.arange(2.0))
         copy = pickle.loads(pickle.dumps(cache))
-        assert isinstance(copy.disk, dc.SafeArrayDisk)
+        assert isinstance(copy.disk, dc.SafeDisk)
+        assert copy.disk.safe_numpy
         assert copy.disk.on_error == 'miss'
         copy.close()
 
 
 def test_with_types_still_refuses_numpy():
-    with pytest.raises(ValueError):
-        dc.SafeArrayDisk.with_types(np.ndarray)
+    with pytest.raises(ValueError, match='with_numpy'):
+        ArrayDisk.with_types(np.ndarray)
+    with pytest.raises(ValueError, match='with_numpy'):
+        dc.SafeDisk.with_types(modules='numpy')
+
+
+def test_with_numpy_combines_in_either_order(directory):
+    disks = {
+        'first': dc.SafeDisk.with_types(Pair).with_numpy(),
+        'second': dc.SafeDisk.with_numpy().with_types(Pair),
+    }
+
+    for name, disk in disks.items():
+        assert disk.safe_numpy
+        assert Pair in disk.safe_types
+        with dc.Cache(op.join(directory, name), disk=disk) as cache:
+            cache['key'] = Pair(np.arange(2.0), 'x')
+            same(cache['key'].left, np.arange(2.0))
+            assert cache['key'].right == 'x'
+
+
+def test_with_numpy_twice_adds_nothing():
+    assert dc.SafeDisk.safe_numpy is False
+    assert ArrayDisk.with_numpy()._disk_options == ArrayDisk._disk_options
+
+
+def test_safedisk_still_refuses_numpy(directory):
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            cache['key'] = np.arange(2.0)
+        with pytest.raises(TypeError, match='SafeDisk cannot store value'):
+            cache['key'] = {'a': np.float64(1.5)}
+        assert len(cache) == 0
+
+
+def test_safejsondisk_refuses_with_numpy():
+    with pytest.raises(TypeError, match='SafeJSONDisk'):
+        dc.SafeJSONDisk.with_numpy()
+
+
+def test_environment_selects_a_with_numpy_disk(monkeypatch):
+    monkeypatch.setenv(core.ENV_DISK, 'tests.test_safedisk_numpy:ArrayDisk')
+    monkeypatch.setenv(core.ENV_SAFE_TYPES, 'tests.test_safedisk_numpy:Pair')
+    core._disk_from_environment.cache_clear()
+    try:
+        disk = dc.default_disk()
+    finally:
+        core._disk_from_environment.cache_clear()
+    assert issubclass(disk, dc.SafeDisk)
+    assert disk.safe_numpy
+    assert Pair in disk.safe_types
 
 
 def test_row_format_is_pinned(directory):
@@ -762,13 +809,13 @@ def test_row_format_is_pinned(directory):
     array = np.arange(3.0)
     write_row(directory, persid(array_pid(npy_bytes(array))))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         same(cache['key'], array)
 
     other = op.join(directory, 'other')
     write_row(other, persid(('scalar', 'float32', 1.5)))
 
-    with dc.Cache(other, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(other, disk=ArrayDisk) as cache:
         assert cache['key'] == 1.5
         assert type(cache['key']) is np.float32
 
@@ -776,7 +823,7 @@ def test_row_format_is_pinned(directory):
 def test_stored_row_uses_the_pinned_format(directory):
     array = np.arange(3.0)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['array'] = array
         cache['scalar'] = [np.int64(1)]
         rows = row_bytes(cache, 'array'), row_bytes(cache, 'scalar')
@@ -793,7 +840,7 @@ def test_stored_row_uses_the_pinned_format(directory):
 
 @pytest.mark.parametrize('reader', [dc.Disk, dc.SafeDisk])
 def test_another_disk_refuses_an_array_entry(directory, reader):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['array'] = np.arange(2.0)
         cache['plain'] = {'a': 1}
 
@@ -804,7 +851,7 @@ def test_another_disk_refuses_an_array_entry(directory, reader):
 
 
 def test_another_disk_with_miss_deletes_an_array_entry(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['array'] = np.arange(2.0)
 
     disk = dc.SafeDisk.with_options(on_error='miss')
@@ -818,7 +865,7 @@ def test_reads_safedisk_entries(directory):
     with dc.Cache(directory, disk=dc.SafeDisk) as cache:
         cache['key'] = {'a': [1, 2]}
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         assert cache['key'] == {'a': [1, 2]}
 
 
@@ -826,7 +873,7 @@ def test_array_pickled_by_disk_is_refused(directory):
     with dc.Cache(directory, disk=dc.Disk) as cache:
         cache['key'] = np.arange(2.0)
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
             cache['key']
 
@@ -900,7 +947,7 @@ FORGED = {
 def test_forged_array_is_refused(directory, data):
     write_row(directory, persid(array_pid(data)))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
             cache['key']
 
@@ -947,7 +994,7 @@ FORGED_IDS = {
 def test_forged_persistent_id_is_refused(directory, pid):
     write_row(directory, persid(pid))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
             cache['key']
 
@@ -972,7 +1019,7 @@ def test_persistent_id_in_a_key_row_is_refused(directory, pid):
     con.commit()
     con.close()
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
             list(cache)
 
@@ -981,7 +1028,7 @@ def test_persistent_id_in_a_key_row_is_refused(directory, pid):
 
 
 def test_keys_still_read_back(directory):
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache[('a', 1)] = np.arange(2.0)
         cache['text'] = np.arange(2.0)
         assert list(cache) == [('a', 1), 'text']
@@ -990,7 +1037,7 @@ def test_keys_still_read_back(directory):
 def test_none_as_a_persistent_id_is_refused(directory):
     write_row(directory, b'\x80\x05NQ.')
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
             cache['key']
 
@@ -1002,7 +1049,7 @@ def test_none_as_a_persistent_id_is_refused(directory):
 def test_header_check_refuses_before_numpy_sees_the_data(directory, name):
     write_row(directory, persid(array_pid(FORGED[name])))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError, match='array header'):
             cache['key']
 
@@ -1019,7 +1066,7 @@ def test_one_id_used_many_times_decodes_once(directory):
     pid = Pid(array_pid(npy_bytes(np.zeros(1000))))
     write_row(directory, forge([pid] * 1001))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         result = cache['key']
 
     assert len(result) == 1001
@@ -1030,7 +1077,7 @@ def test_one_buffer_in_many_ids_decodes_once(directory):
     data = bytearray(npy_bytes(np.zeros(1000)))
     write_row(directory, forge([Pid(('npy', data)) for _ in range(1001)]))
 
-    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
         result = cache['key']
 
     assert len(result) == 1001
