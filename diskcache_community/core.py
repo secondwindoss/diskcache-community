@@ -1943,6 +1943,7 @@ class Cache:
         stale = self._cons.add(threading.get_ident(), sentinel, con)
         self._local.con = con
         self._local.sentinel = sentinel
+        self._local.cur = con.cursor()
 
         for old in stale:
             old.close()
@@ -1980,6 +1981,22 @@ class Cache:
     @property
     def _sql(self):
         return self._con.execute
+
+    @property
+    def _cur(self):
+        # The calling thread's cursor, reused to save creating one per
+        # statement. Only a statement whose result is fetched right after it
+        # runs may use it, since the next statement on it discards the rest.
+        if self._cons.pid != os.getpid():
+            self._discard_connections()
+
+        cur = getattr(self._local, 'cur', None)
+
+        if cur is None:
+            self._connect()
+            cur = self._local.cur
+
+        return cur
 
     @property
     def _sql_retry(self):
@@ -2556,16 +2573,28 @@ class Cache:
             with cl.suppress(OSError, ValueError):
                 self._disk.remove(filename)
 
-    def _drop_unreadable(self, rowid, mode, filename, db_value, retry):
-        """Delete the unreadable entry at `rowid` unless it has changed."""
+    def _drop_unreadable(
+        self, rowid, mode, filename, db_value, retry, key=None
+    ):
+        """Delete the unreadable entry unless it has changed.
+
+        The entry is found by `rowid`, or when that is None by `key`, the
+        ``(db_key, raw)`` pair of its row.
+
+        """
         if self._read_only:
             return
 
+        if rowid is None:
+            match, args = 'key = ? AND raw = ?', key
+        else:
+            match, args = 'rowid = ?', (rowid,)
+
         with self._transact(retry) as (sql, _):
             cursor = sql(
-                'DELETE FROM Cache WHERE rowid = ? AND mode = ?'
+                'DELETE FROM Cache WHERE ' + match + ' AND mode = ?'
                 ' AND filename IS ? AND value IS ?',
-                (rowid, mode, filename, db_value),
+                args + (mode, filename, db_value),
             )
             deleted = cursor.rowcount
 
@@ -2618,6 +2647,7 @@ class Cache:
         # Kept in one function: a helper call costs a measurable share of a
         # cache hit.
         # pylint: disable=too-many-branches,too-many-statements
+        # pylint: disable=too-many-locals,too-many-return-statements
         db_key, raw = self._disk.put(key)
         update_column = EVICTION_POLICY[self.eviction_policy]['get']
         statistics = self.statistics
@@ -2627,6 +2657,38 @@ class Cache:
             # the path that does not write.
             update_column = None
             statistics = False
+
+        if not (
+            statistics or update_column or expire_time or tag or store_time
+        ):
+            # Fastest path: nothing to record and no metadata to return, so
+            # read only the columns that hold the value. The key and raw
+            # columns are unique, so there is at most one row.
+            row = self._cur.execute(
+                'SELECT mode, filename, value FROM Cache'
+                ' WHERE key = ? AND raw = ?'
+                ' AND (expire_time IS NULL OR expire_time > ?)',
+                (db_key, raw, time.time()),
+            ).fetchone()
+
+            if row is None:
+                return default
+
+            mode, filename, db_value = row
+
+            try:
+                return self._disk.fetch(mode, filename, db_value, read)
+            except IOError:
+                # Key was deleted before we could retrieve result.
+                return default
+            except Exception as error:  # pylint: disable=broad-except
+                if not self._unreadable(error):
+                    raise
+                self._drop_unreadable(
+                    None, mode, filename, db_value, retry, (db_key, raw)
+                )
+                return default
+
         # Select store_time only when asked: each extra column costs a
         # measurable share of a cache hit.
         if store_time:
@@ -3947,7 +4009,7 @@ class Cache:
         if con is not None and con not in cons:
             cons.append(con)
 
-        for name in ('con', 'sentinel'):
+        for name in ('con', 'sentinel', 'cur'):
             try:
                 delattr(local, name)
             except AttributeError:
