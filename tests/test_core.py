@@ -477,6 +477,43 @@ def test_expire_rows(cache):
     assert len(cache.check()) == 0
 
 
+def test_set_culls_rows_expired_by_another_connection(cache):
+    for value in range(5):
+        assert cache.set(value, value, expire=60)
+
+    with dc.Cache(cache.directory) as other:
+        other._sql('UPDATE Cache SET expire_time = ?', (time.time() - 1,))
+
+    assert cache.set(5, 5)
+    assert len(cache) == 1
+    assert len(cache.check()) == 0
+
+
+def test_set_culls_its_own_expired_row(cache):
+    assert cache.set(0, 0)
+    assert cache.set(1, 1, expire=-1)
+    assert len(cache) == 1
+    assert cache.get(0) == 0
+
+
+def test_set_without_expired_rows_skips_search(cache):
+    assert cache.set(0, 0, expire=60)
+    statements = []
+    cache._con.set_trace_callback(statements.append)
+    try:
+        assert cache.set(1, 1)
+    finally:
+        cache._con.set_trace_callback(None)
+    assert not any('expire_time < ' in text for text in statements)
+
+
+def test_volume_without_pragma_functions(cache):
+    cache.set(0, b'x' * 1000)
+    expected = cache.volume()
+    with mock.patch.object(dc.core, '_PRAGMA_FUNCTIONS', False):
+        assert cache.volume() == expected
+
+
 def test_least_recently_stored(cache):
     cache.reset('eviction_policy', 'least-recently-stored')
     cache.reset('size_limit', int(10.1e6))
