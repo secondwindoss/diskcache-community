@@ -1618,6 +1618,9 @@ _NOT_UNREADABLE = (OSError, MemoryError, RecursionError, _ReaderMissing)
 # Connections inherited from a parent process, kept open on purpose.
 _INHERITED_CONNECTIONS: 'list[sqlite3.Connection]' = []
 
+# SQLite 3.16 added table-valued pragma functions such as pragma_page_count().
+_PRAGMA_FUNCTIONS = sqlite3.sqlite_version_info >= (3, 16, 0)
+
 
 def _before_fork():
     # SQLite advises closing every connection before fork. The gate waits
@@ -3889,6 +3892,18 @@ class Cache:
         :return: size in bytes
 
         """
+        if _PRAGMA_FUNCTIONS:
+            # One statement instead of two: set calls this on every write
+            # when an eviction policy is in effect.
+            rows = self._sql_retry(
+                'SELECT (SELECT page_count FROM pragma_page_count()), value'
+                " FROM Settings WHERE key = 'size'"
+            ).fetchall()
+            if rows:
+                ((page_count, size),) = rows
+                self.size = size
+                return self._page_size * page_count + size
+
         ((page_count,),) = self._sql('PRAGMA page_count').fetchall()
         total_size = self._page_size * page_count + self.reset('size')
         return total_size
