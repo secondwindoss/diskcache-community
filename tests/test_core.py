@@ -5,6 +5,7 @@ import errno
 import gc
 import hashlib
 import io
+import math
 import os
 import os.path as op
 import pathlib
@@ -2220,3 +2221,27 @@ def test_get_store_time_read(cache):
     reader, store_time = cache.get('key', read=True, store_time=True)
     assert reader.read() == b'value'
     assert isinstance(store_time, float)
+
+
+@pytest.mark.parametrize('disk', [dc.Disk, dc.SafeDisk, dc.JSONDisk])
+def test_nan_value_is_kept(disk):
+    # SQLite stores NaN as NULL, which would read back as None.
+    with dc.Cache(disk=disk) as cache:
+        cache['key'] = float('nan')
+        cache['inf'] = float('inf')
+        assert math.isnan(cache['key'])
+        assert cache['inf'] == float('inf')
+        assert cache.check() == []
+        shutil.rmtree(cache.directory, ignore_errors=True)
+
+
+def test_memoize_nan_is_kept_on_a_hit():
+    with dc.Cache() as cache:
+
+        @cache.memoize()
+        def compute():
+            return float('nan')
+
+        assert math.isnan(compute())
+        assert math.isnan(compute())
+        shutil.rmtree(cache.directory, ignore_errors=True)

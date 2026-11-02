@@ -1081,8 +1081,8 @@ writing them through pickle's persistent IDs in numpy's ``.npy`` format:
   <diskcache_community.SafeDisk.with_types>`. Its header is checked against the
   data before it is read back, also with ``allow_pickle=False``. An array that
   appears twice in a value is stored once and is one array when read back.
-* numpy integers, floats, complex numbers, booleans and strings read back as
-  the equivalent Python value, so ``numpy.float64(1.5)`` reads back as ``1.5``.
+* numpy booleans, integers, floats, complex numbers and strings read back as
+  the same numpy type with the same value, including NaN.
 * Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
   ``numpy.matrix``, ``datetime64`` and ``timedelta64`` scalars, and arrays that
   the reader would refuse, such as a dtype with no width, raise
@@ -1090,10 +1090,7 @@ writing them through pickle's persistent IDs in numpy's ``.npy`` format:
 
 Keys behave as in :class:`SafeDisk <diskcache_community.SafeDisk>`, so numpy
 values in a key raise :exc:`TypeError`, including the arguments of a function
-decorated with :meth:`memoize <diskcache_community.Cache.memoize>`. A memoized
-function that returns a numpy scalar returns it unchanged on a miss and as a
-Python value on a hit, so convert it in the function if a caller relies on its
-type.
+decorated with :meth:`memoize <diskcache_community.Cache.memoize>`.
 
 Everything else behaves as in :class:`SafeDisk
 <diskcache_community.SafeDisk>`, and ``with_options(on_error='miss')`` works
@@ -1106,10 +1103,10 @@ is not readable by any other disk, or by diskcache 5.6.3: they open the
 directory and raise :exc:`pickle.UnpicklingError` for that entry, and a disk
 with ``on_error='miss'`` deletes it. The choice of disk is not stored in the
 cache directory, so select this disk in every process that shares a directory.
-A process that cannot import numpy raises :exc:`ImportError` for an entry with
-an array and keeps it, even with ``on_error='miss'``. Arrays that the default
-:class:`Disk <diskcache_community.Disk>` pickled earlier are refused like any
-other pickle outside the allowlist, so compute them again.
+A process that cannot import numpy raises :exc:`ImportError` for an entry
+holding numpy data and keeps it, even with ``on_error='miss'``. Arrays that the
+default :class:`Disk <diskcache_community.Disk>` pickled earlier are refused
+like any other pickle outside the allowlist, so compute them again.
 
 .. _tutorial-default-disk:
 

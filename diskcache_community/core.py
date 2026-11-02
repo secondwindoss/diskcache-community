@@ -314,9 +314,11 @@ class Disk:
         :return: (size, mode, filename, value) tuple for Cache table
 
         """
-        # pylint: disable=unidiomatic-typecheck
+        # pylint: disable=unidiomatic-typecheck,comparison-with-itself
         type_value = type(value)
         min_file_size = self.min_file_size
+        # SQLite stores NaN as NULL, so NaN goes to a pickle below.
+        raw_float = type_value is float and value == value
 
         if (
             (type_value is str and len(value) < min_file_size)
@@ -324,7 +326,7 @@ class Disk:
                 type_value is int
                 and -9223372036854775808 <= value <= 9223372036854775807
             )
-            or (type_value is float)
+            or raw_float
         ):
             return 0, MODE_RAW, None, value
         elif type_value is bytes:
@@ -875,9 +877,9 @@ class SafeDisk(Disk):
             },
         )
 
-    def _unpickler(self, data):
+    def _unpickler(self, file):
         return SafeUnpickler(
-            io.BytesIO(data),
+            file,
             SAFE_PICKLE_NAMES,
             self.safe_types,
             self.safe_modules,
@@ -906,7 +908,7 @@ class SafeDisk(Disk):
 
         if names is None:
             try:
-                self._unpickler(data).load()
+                self._unpickler(io.BytesIO(data)).load()
             except pickle.UnpicklingError as error:
                 raise TypeError(
                     'SafeDisk cannot store %s: %s' % (what, error)
@@ -915,7 +917,7 @@ class SafeDisk(Disk):
 
         for module, name in sorted(names):
             try:
-                self._unpickler(b'').find_class(module, name)
+                self._unpickler(io.BytesIO()).find_class(module, name)
             except pickle.UnpicklingError:
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s: it pickles'
@@ -1012,7 +1014,7 @@ class SafeDisk(Disk):
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        return self._unpickler(key).load()
+        return self._unpickler(io.BytesIO(key)).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck
@@ -1026,8 +1028,9 @@ class SafeDisk(Disk):
 
         if mode == MODE_PICKLE:
             if value is None:
-                value = super().fetch(MODE_BINARY, filename, None, False)
-            return self._unpickler(value).load()
+                with super().fetch(MODE_BINARY, filename, None, True) as file:
+                    return self._unpickler(file).load()
+            return self._unpickler(io.BytesIO(value)).load()
 
         return super().fetch(mode, filename, value, read)
 

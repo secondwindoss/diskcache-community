@@ -8,11 +8,12 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 - `SafeJSONDisk` stores JSON like `JSONDisk`, reads and writes the same files, and never reads a pickle. `JSONDisk` writes only JSON but inherits the pickle reads of `Disk`, so a crafted row still ran code and a crafted path could still delete a file outside the cache. `SafeJSONDisk` refuses pickled keys and values without parsing them and confines paths as `SafeDisk` does (PR #33).
 
-- `SafeArrayDisk` is a `SafeDisk` that stores numpy arrays in the `.npy` format instead of pickling them, through pickle's persistent IDs, anywhere in a value including inside classes allowed with `with_types`. numpy scalars read back as Python values. Headers are checked against the data, so forged arrays are refused rather than raising `MemoryError`, and every forged entry raises `UnpicklingError` or reads as a miss with `on_error='miss'`. Object arrays, `ndarray` subclasses and arrays the reader would refuse raise `TypeError` at write time. Entries holding numpy data can't be read by other disks or by 5.6.3, which raise `UnpicklingError`. numpy stays optional, and `SafeDisk` still refuses it (PR #34).
+- `SafeArrayDisk` is a `SafeDisk` that stores numpy arrays in the `.npy` format instead of pickling them, through pickle's persistent IDs, anywhere in a value including inside classes allowed with `with_types`. numpy scalars read back as the same type. Reading a large array takes no second copy of it. Headers are checked against the data, so forged arrays are refused rather than raising `MemoryError`, and every forged entry raises `UnpicklingError` or reads as a miss with `on_error='miss'`. Object arrays, `ndarray` subclasses and arrays the reader would refuse raise `TypeError` at write time. Entries holding numpy data can't be read by other disks or by 5.6.3, which raise `UnpicklingError`. numpy stays optional, and `SafeDisk` still refuses it (PR #34).
 - `DISKCACHE_SAFE_TYPES` and `DISKCACHE_SAFE_MODULES` now apply when `DISKCACHE_DISK` names a `SafeDisk` subclass, not only with `safe` (PR #34).
 
 ### Fixes
 
+- A float NaN stored as a value is kept, on every disk. It was written to SQLite, which stores NaN as NULL, so it read back as `None`. It is now stored as a pickle, which 5.6.3 reads too (PR #34).
 - `memoize_stampede` works with `SafeDisk`: the key of its early recomputation marker held the internal `ENOVAL` constant, which `SafeDisk` refuses, so a call raised `TypeError` once a cached value neared expiry (PR #32).
 
 ## 5.8.1 (2026-10-18)
