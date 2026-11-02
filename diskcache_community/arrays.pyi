@@ -1,0 +1,3 @@
+from diskcache_community.core import SafeDisk
+
+class SafeArrayDisk(SafeDisk): ...

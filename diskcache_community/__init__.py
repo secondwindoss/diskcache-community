@@ -5,6 +5,7 @@ DiskCache API Reference
 The :doc:`tutorial` provides a helpful walkthrough of most methods.
 """
 
+from .arrays import SafeArrayDisk
 from .core import (
     DEFAULT_SETTINGS,
     ENOVAL,
@@ -50,6 +51,7 @@ __all__ = [
     'Lock',
     'RLock',
     'ReadOnlyError',
+    'SafeArrayDisk',
     'SafeDisk',
     'SafeJSONDisk',
     'Timeout',

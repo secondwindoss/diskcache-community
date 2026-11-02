@@ -1,3 +1,4 @@
+from diskcache_community.arrays import SafeArrayDisk as SafeArrayDisk
 from diskcache_community.core import DEFAULT_SETTINGS as DEFAULT_SETTINGS
 from diskcache_community.core import ENOVAL as ENOVAL
 from diskcache_community.core import EVICTION_POLICY as EVICTION_POLICY
@@ -40,6 +41,7 @@ __all__ = [
     'Lock',
     'RLock',
     'ReadOnlyError',
+    'SafeArrayDisk',
     'SafeDisk',
     'SafeJSONDisk',
     'Timeout',

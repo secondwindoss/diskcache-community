@@ -820,8 +820,9 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        numpy classes are refused, see ``UNSAFE_MODULES``; store arrays as
-        bytes, for example with ``numpy.save(..., allow_pickle=False)``.
+        numpy classes are refused, see ``UNSAFE_MODULES``; use
+        :class:`SafeArrayDisk <diskcache_community.SafeArrayDisk>` to store
+        arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')

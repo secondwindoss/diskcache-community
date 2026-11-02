@@ -167,6 +167,16 @@ Read the :ref:`SafeJSONDisk tutorial <tutorial-safejsondisk>` for details.
    :special-members:
    :exclude-members: __weakref__
 
+SafeArrayDisk
+-------------
+
+Read the :ref:`SafeArrayDisk tutorial <tutorial-safearraydisk>` for details.
+
+.. autoclass:: diskcache_community.SafeArrayDisk
+   :members:
+   :special-members:
+   :exclude-members: __weakref__
+
 Default disk
 ------------
 

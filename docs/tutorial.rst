@@ -1013,8 +1013,8 @@ more than store their fields, such as dataclasses, named tuples, enums and
 pydantic models, because allowing a class lets a crafted pickle create
 instances of it with any field values. numpy classes are refused: numpy
 restores a dtype's internal flags from the pickle without checking them, so a
-crafted array pickle can corrupt memory. Store arrays as bytes instead, for
-example with ``numpy.save(buffer, array, allow_pickle=False)``. A write whose
+crafted array pickle can corrupt memory. Use :class:`SafeArrayDisk
+<diskcache_community.SafeArrayDisk>` to store arrays instead. A write whose
 value pickles a class outside the allowlist raises :exc:`TypeError` that names
 the class. Calling ``with_types`` on the returned class adds to its allowlist,
 and a cache that uses it can be pickled as usual.
@@ -1055,6 +1055,48 @@ extend and :meth:`SafeDisk.with_types
 <diskcache_community.SafeDisk.with_types>` adds nothing here. Use
 ``SafeJSONDisk.with_options(on_error='miss')`` to drop refused entries, as
 described in :ref:`tutorial-unreadable-entries`.
+
+.. _tutorial-safearraydisk:
+
+SafeArrayDisk
+.............
+
+:class:`SafeDisk <diskcache_community.SafeDisk>` refuses numpy, because
+unpickling an array is not memory-safe. :class:`SafeArrayDisk
+<diskcache_community.SafeArrayDisk>` stores arrays without pickling them:
+
+.. code-block:: python
+
+    import numpy
+
+    from diskcache_community import Cache, SafeArrayDisk
+
+    cache = Cache('/tmp/mycache', disk=SafeArrayDisk)
+    cache['embedding'] = numpy.arange(3.0)
+    cache['result'] = {'scores': numpy.zeros(2), 'best': numpy.float64(1.5)}
+
+* An array on its own or inside a ``dict``, ``list`` or ``tuple`` is saved in
+  numpy's ``.npy`` format with ``allow_pickle=False``. Its header is checked
+  against the data before it is read back, also with ``allow_pickle=False``.
+* numpy integers, floats, complex numbers, booleans and strings are stored as
+  the equivalent Python value, so ``numpy.float64(1.5)`` reads back as ``1.5``.
+* Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
+  ``numpy.matrix``, arrays inside any other type, and ``datetime64`` and
+  ``timedelta64`` scalars raise :exc:`TypeError` when written.
+
+Everything else behaves as in :class:`SafeDisk
+<diskcache_community.SafeDisk>`, and :meth:`SafeDisk.with_types
+<diskcache_community.SafeDisk.with_types>` and
+``with_options(on_error='miss')`` work the same way. An entry whose array data
+has been tampered with raises an error when read, or reads as missing with
+``on_error='miss'``.
+
+The choice of disk is not stored in the cache directory, so select this disk in
+every process that shares a directory. An encoded array is an ordinary pickled
+``dict``: a process on another disk, or on diskcache 5.6.3, opens the directory
+and reads that ``dict`` instead of the array. Arrays that the default
+:class:`Disk <diskcache_community.Disk>` pickled earlier are refused like any
+other pickle outside the allowlist, so compute them again.
 
 .. _tutorial-default-disk:
 
