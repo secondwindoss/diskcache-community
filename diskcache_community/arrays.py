@@ -3,16 +3,14 @@
 import io
 import math
 import pickle
+import warnings
 
 from .core import SAFE_PICKLE_NAMES, Disk, SafeUnpickler, _ReaderMissing
 
-# Pickle protocol 5 is the first that stores a bytearray in place, so that
-# reading a file-backed entry needs no second copy of its array.
+# Pickle protocol 5 is the first that stores a buffer in place, so that
+# writing an array copies it once, into the row, and reading a file-backed
+# entry needs no second copy of it.
 _MIN_PROTOCOL = 5
-
-# Bytes of a ``.npy`` file that can hold its header: the prefix, plus the
-# longest header that numpy parses by default, plus padding.
-_HEADER_LIMIT = 12 + 10000 + 64
 
 # The numpy scalar types that are stored, by the name written to the row, with
 # the Python type that ``item()`` gives for each and the reader insists on. The
@@ -48,24 +46,25 @@ def _import_numpy():
     return numpy
 
 
-def _read_header(numpy, data):
-    """Return shape, Fortran order, dtype and offset of ``.npy`` bytes `data`.
+def _read_header(numpy, header, size):
+    """Return shape, Fortran order and dtype from the ``.npy`` `header`.
 
-    Raise UnpicklingError unless the header is consistent with the data. The
-    sizes are checked because a forged shape must not decide what gets read.
-    Anything that goes wrong while parsing, including a MemoryError from the
-    Python parser on a crafted header, which ``on_error='miss'`` would not
-    treat as an unreadable entry, is reported as UnpicklingError.
+    Raise UnpicklingError unless the header is consistent with `size` bytes
+    of data. The sizes are checked because a forged shape must not decide
+    what gets read. Anything that goes wrong while parsing, including a
+    MemoryError from the Python parser on a crafted header, which
+    ``on_error='miss'`` would not treat as an unreadable entry, is reported
+    as UnpicklingError.
 
     """
     # pylint: disable=broad-except,no-member
     try:
-        reader = io.BytesIO(bytes(memoryview(data)[:_HEADER_LIMIT]))
+        reader = io.BytesIO(header)
         version = numpy.lib.format.read_magic(reader)
         if version == (1, 0):
-            header = numpy.lib.format.read_array_header_1_0(reader)
+            fields = numpy.lib.format.read_array_header_1_0(reader)
         elif version == (2, 0):
-            header = numpy.lib.format.read_array_header_2_0(reader)
+            fields = numpy.lib.format.read_array_header_2_0(reader)
         else:
             raise ValueError('unsupported .npy version %r' % (version,))
     except Exception as error:
@@ -73,54 +72,70 @@ def _read_header(numpy, data):
             'SafeDisk refuses the array header'
         ) from error
 
-    shape, fortran, dtype = header
-    offset = reader.tell()
+    shape, fortran, dtype = fields
     count = math.prod(shape)
 
     # A zero-width dtype would let any shape match any amount of data.
     if (
         dtype.hasobject
-        or dtype.itemsize * count != len(data) - offset
+        or reader.tell() != len(header)
+        or dtype.itemsize * count != size
         or (count and not dtype.itemsize)
     ):
         raise pickle.UnpicklingError('SafeDisk refuses the array header')
 
-    return shape, fortran, dtype, offset
+    return shape, fortran, dtype
 
 
 def _pack_array(numpy, array):
-    """Return a buffer of the ``.npy`` bytes of `array`, for pickle to store.
+    """Return the ``.npy`` header of `array` and a buffer of its data.
 
-    The buffer is writable, so pickle stores it as a bytearray in place.
+    The buffer is the array's own memory, so pickle copies it once, into
+    the row, as a bytearray. An array that is not contiguous or not
+    writable is copied first, since pickle stores a read-only buffer as
+    bytes, which the reader refuses.
 
     """
+    # pylint: disable=no-member
+    flags = array.flags
+    if not (flags.writeable and (flags.c_contiguous or flags.f_contiguous)):
+        array = array.copy(order='A')
+
     buffer = io.BytesIO()
     try:
-        numpy.save(buffer, array, allow_pickle=False)
-        view = buffer.getbuffer()
-        _read_header(numpy, view)
+        with warnings.catch_warnings():
+            # numpy warns about dtypes it would save as pickles or in a
+            # format the reader refuses; both are refused below.
+            warnings.simplefilter('ignore')
+            # Version 1 holds every header the reader accepts: numpy refuses
+            # a header over 10000 bytes, and version 1 holds 65535.
+            fields = numpy.lib.format.header_data_from_array_1_0(array)
+            numpy.lib.format.write_array_header_1_0(buffer, fields)
+        header = buffer.getvalue()
+        _read_header(numpy, header, array.nbytes)
     except (ValueError, pickle.UnpicklingError) as error:
         raise TypeError(
             'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
         ) from error
-    return pickle.PickleBuffer(view)
+
+    return header, pickle.PickleBuffer(array)
 
 
-def _unpack_array(data):
+def _unpack_array(header, data):
     """Return the array in the bytearray `data`, which it keeps as its data.
 
     A view takes no second copy of the array, and stays writable because
-    `data` is. `data` may have been tampered with.
+    `data` is. `header` and `data` may have been tampered with.
 
     """
     # pylint: disable=broad-except
     numpy = _import_numpy()
-    shape, fortran, dtype, offset = _read_header(numpy, data)
+    shape, fortran, dtype = _read_header(numpy, header, len(data))
 
     try:
         if not math.prod(shape):
             return numpy.empty(shape, dtype)
-        array = numpy.frombuffer(data, dtype, offset=offset)
+        array = numpy.frombuffer(data, dtype)
         return array.reshape(shape, order='F' if fortran else 'C')
     except Exception as error:
         raise pickle.UnpicklingError(
@@ -172,7 +187,14 @@ class _ArrayPickler(pickle.Pickler):
         self.reduced = False
 
     def reducer_override(self, obj):
-        """Note that an object was reduced, which can look up a name."""
+        """Note that an object was reduced, which can look up a name.
+
+        CPython skips this hook only for None, booleans and exact ints,
+        floats, bytes, strings, dicts, sets, frozensets, lists and tuples,
+        none of which pickle a name, so every pickle that looks one up is
+        noted here and scanned.
+
+        """
         # pylint: disable=unused-argument
         self.reduced = True
         return NotImplemented
@@ -186,13 +208,15 @@ class _ArrayPickler(pickle.Pickler):
                     'SafeDisk cannot store a subclass of ndarray: %s.%s'
                     % (type(obj).__module__, type(obj).__qualname__)
                 )
-            # Holding `obj` keeps its id from being reused: pickle's own memo
-            # skips persistent IDs, and a value may hand it temporary arrays.
-            entry = self._arrays.get(id(obj))
-            if entry is None:
-                entry = (obj, ('npy', _pack_array(numpy, obj)))
-                self._arrays[id(obj)] = entry
-            return entry[1]
+            # pickle's own memo skips persistent IDs, and a value may hand it
+            # temporary arrays. The buffer in the ID keeps `obj` alive, so
+            # its id is not reused while this memo holds the ID.
+            pid = self._arrays.get(id(obj))
+            if pid is None:
+                pid = self._arrays[id(obj)] = ('npy',) + _pack_array(
+                    numpy, obj
+                )
+            return pid
         if isinstance(obj, numpy.generic):
             kind = type(obj)
             name = self._scalar_names.get(kind)
@@ -209,7 +233,16 @@ class _ArrayPickler(pickle.Pickler):
 
 
 class _ArrayUnpickler(SafeUnpickler):
-    """Unpickler that reads back what _ArrayPickler wrote."""
+    """Unpickler that reads back what _ArrayPickler wrote.
+
+    A forged row can follow an array with BUILD, which calls its
+    ``__setstate__``. numpy restores an array's internal flags from the dtype
+    in that state without checking them, which is why numpy pickles are
+    refused. The call is harmless here because the dtype slot accepts only a
+    ``numpy.dtype``, and neither the allowlist nor a persistent ID can make
+    one; a test pins that.
+
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -218,8 +251,8 @@ class _ArrayUnpickler(SafeUnpickler):
 
     def persistent_load(self, pid):
         # pylint: disable=unidiomatic-typecheck
-        if type(pid) is tuple:
-            if len(pid) == 3 and pid[0] == 'scalar':
+        if type(pid) is tuple and len(pid) == 3:
+            if pid[0] == 'scalar':
                 value = pid[2]
                 if type(value) not in (str, bytes):
                     return _unpack_scalar(pid[1], value)
@@ -230,17 +263,19 @@ class _ArrayUnpickler(SafeUnpickler):
                     entry = (value, _unpack_scalar(pid[1], value))
                     self._strings[id(value)] = entry
                 return entry[1]
-            if len(pid) == 2 and pid[0] == 'npy':
-                payload = pid[1]
-                if type(payload) is bytearray:
+            if pid[0] == 'npy':
+                header, payload = pid[1], pid[2]
+                if type(header) is bytes and type(payload) is bytearray:
                     # Decoding each buffer once keeps what a row can decode to
                     # within its own size, and shared arrays shared. Holding
-                    # `payload` keeps its id from being reused.
-                    entry = self._arrays.get(id(payload))
+                    # the pair keeps their ids from being reused.
+                    key = (id(header), id(payload))
+                    entry = self._arrays.get(key)
                     if entry is None:
-                        entry = (payload, _unpack_array(payload))
-                        self._arrays[id(payload)] = entry
-                    return entry[1]
+                        array = _unpack_array(header, payload)
+                        entry = (header, payload, array)
+                        self._arrays[key] = entry
+                    return entry[2]
         raise pickle.UnpicklingError('SafeDisk refuses a persistent ID')
 
 

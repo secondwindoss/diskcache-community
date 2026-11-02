@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import tracemalloc
+import warnings
 
 import pytest
 
@@ -91,10 +92,13 @@ def same(actual, expected):
     assert actual.tobytes() == expected.tobytes()
 
 
-def npy_bytes(array):
+def npy_parts(array):
+    """Return the ``.npy`` header of `array` and its data, as numpy saves it."""
     buffer = io.BytesIO()
     np.save(buffer, array, allow_pickle=False)
-    return buffer.getvalue()
+    data = buffer.getvalue()
+    size = len(data) - array.nbytes
+    return data[:size], data[size:]
 
 
 class Pid:
@@ -121,8 +125,9 @@ def persid(pid):
     return forge(Pid(pid))
 
 
-def array_pid(data):
-    return ('npy', bytearray(data))
+def array_pid(parts):
+    header, data = parts
+    return ('npy', header, bytearray(data))
 
 
 def write_row(directory, data):
@@ -160,7 +165,12 @@ def npy_header(header, body=b'', version=1):
     prefix = 10 if version == 1 else 12
     header += b' ' * (64 - (prefix + len(header) + 1) % 64) + b'\n'
     magic = b'\x93NUMPY' + bytes([version, 0])
-    return magic + struct.pack(size, len(header)) + header + body
+    return magic + struct.pack(size, len(header)) + header, body
+
+
+def raw(header, body=b''):
+    """Forged parts whose header is not a ``.npy`` header at all."""
+    return header, body
 
 
 @pytest.mark.parametrize(
@@ -184,6 +194,36 @@ def test_array_round_trip(directory, array):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
         cache['key'] = array
         same(cache['key'], array)
+
+
+def read_only(array):
+    array.setflags(write=False)
+    return array
+
+
+@pytest.mark.parametrize(
+    'array',
+    [
+        read_only(np.arange(6.0)),
+        np.arange(12.0)[::2],
+        np.arange(12.0).reshape(3, 4)[:, 1:3],
+        np.broadcast_to(np.arange(3.0), (2, 3)),
+        np.asfortranarray(np.arange(6.0).reshape(2, 3))[:, ::2],
+    ],
+    ids=['read-only', 'strided', 'window', 'broadcast', 'fortran-strided'],
+)
+def test_arrays_not_stored_in_place_are_copied_first(directory, array):
+    """pickle refuses a non-contiguous buffer and stores a read-only one as
+    bytes, which the reader refuses, so these take one copy on the way in."""
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = {'a': array, 'b': array}
+        result = cache['key']
+
+    assert result['a'] is result['b']
+    assert result['a'].flags.writeable
+    assert result['a'].dtype == array.dtype
+    assert result['a'].shape == array.shape
+    assert np.array_equal(result['a'], array)
 
 
 def test_arrays_in_containers(directory):
@@ -245,6 +285,52 @@ def test_arrays_in_classes_outside_the_allowlist_are_refused(directory):
             cache['key'] = Result('name', np.arange(2.0))
         with pytest.raises(TypeError):
             cache['key'] = {'a': np.arange(2.0), 'b': Outside()}
+
+
+@pytest.mark.parametrize('kind', ['string dtype', 'non-latin-1 field'])
+def test_refusing_an_array_emits_no_numpy_warning(directory, kind):
+    if kind == 'string dtype':
+        if not hasattr(np, 'dtypes') or not hasattr(np.dtypes, 'StringDType'):
+            pytest.skip('numpy without StringDType')
+        array = np.array(['a'], dtype=np.dtypes.StringDType())
+    else:
+        array = np.zeros(1, dtype=[('→', 'f8')])
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            with pytest.raises(TypeError, match='cannot store an array'):
+                cache['key'] = array
+
+
+def test_only_values_with_reduced_objects_are_scanned(directory, monkeypatch):
+    """Scanning a pickle costs time in proportion to its size, so a value
+    whose pickle cannot name anything is stored without one."""
+    scanned = []
+    check = dc.SafeDisk._check_pickle
+
+    def record(self, data, obj, what):
+        scanned.append(type(obj))
+        return check(self, data, obj, what)
+
+    monkeypatch.setattr(dc.SafeDisk, '_check_pickle', record)
+
+    with dc.Cache(directory, disk=ArrayDisk.with_types(Result)) as cache:
+        cache['plain'] = {'a': np.arange(2.0), 'b': [np.float64(1.5)]}
+        assert scanned == []
+        cache['reduced'] = Result('name', np.arange(2.0))
+        assert scanned == [Result]
+
+
+def test_class_objects_next_to_an_array_are_refused(directory):
+    """A class pickles as a global without being reduced, so the write
+    check relies on pickle calling reducer_override for it all the same."""
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError):
+            cache['key'] = [Outside, np.arange(2.0)]
+        with pytest.raises(TypeError):
+            cache['key'] = {'f': len, 'a': np.arange(2.0)}
+        assert len(cache) == 0
 
 
 def test_writing_leaves_the_caller_value_alone(directory):
@@ -697,7 +783,9 @@ def test_empty_array_of_a_dtype_with_no_width(directory):
         assert cache['key'].shape == (0,)
 
 
-def test_writing_a_large_array_copies_it_at_most_twice(directory):
+def test_writing_a_large_array_copies_it_once(directory):
+    """pickle copies the array's own buffer into the row, and nothing else
+    copies it, as on the default Disk."""
     array = np.arange(4000000.0)
 
     with dc.Cache(directory, disk=ArrayDisk) as cache:
@@ -706,12 +794,10 @@ def test_writing_a_large_array_copies_it_at_most_twice(directory):
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
-    assert peak < array.nbytes * 2.2
+    assert peak < array.nbytes * 1.3
 
 
-def test_writing_an_array_in_an_allowed_class_copies_it_at_most_twice(
-    directory,
-):
+def test_writing_an_array_in_an_allowed_class_copies_it_once(directory):
     """The write check reads past the array instead of copying it."""
     array = np.arange(4000000.0)
 
@@ -722,7 +808,7 @@ def test_writing_an_array_in_an_allowed_class_copies_it_at_most_twice(
         tracemalloc.stop()
         same(cache['key'].vector, array)
 
-    assert peak < array.nbytes * 2.2
+    assert peak < array.nbytes * 1.3
 
 
 def test_reading_a_large_array_takes_no_second_copy(directory):
@@ -845,7 +931,12 @@ def test_environment_selects_a_with_numpy_disk(monkeypatch):
 def test_row_format_is_pinned(directory):
     """Changing what is on disk breaks every cache: this is hand-built."""
     array = np.arange(3.0)
-    write_row(directory, persid(array_pid(npy_bytes(array))))
+    header = (
+        b"\x93NUMPY\x01\x00v\x00{'descr': '<f8', 'fortran_order': False,"
+        b" 'shape': (3,), }" + b' ' * 60 + b'\n'
+    )
+    assert header == npy_parts(array)[0]
+    write_row(directory, persid(('npy', header, bytearray(array.tobytes()))))
 
     with dc.Cache(directory, disk=ArrayDisk) as cache:
         same(cache['key'], array)
@@ -867,10 +958,11 @@ def test_stored_row_uses_the_pinned_format(directory):
         rows = row_bytes(cache, 'array'), row_bytes(cache, 'scalar')
 
     ops = [(op.name, arg) for op, arg, _ in pickletools.genops(rows[0])]
+    header, data = npy_parts(array)
     assert ('BINPERSID', None) in ops
-    assert any(name == 'BYTEARRAY8' for name, _ in ops)
+    assert ('BYTEARRAY8', bytearray(data)) in ops
+    assert ('SHORT_BINBYTES', header) in ops
     assert any(arg == 'npy' for _, arg in ops)
-    assert any(arg == npy_bytes(array) for _, arg in ops)
     args = [arg for _, arg, _ in pickletools.genops(rows[1])]
     assert 'scalar' in args
     assert 'int64' in args
@@ -939,22 +1031,40 @@ def test_poison_inside_a_persistent_id_does_not_run(directory):
     assert not op.exists(marker)
 
 
-def test_pickle_in_the_array_slot_does_not_run(directory):
+@pytest.mark.parametrize('slot', ['header', 'data'])
+def test_pickle_in_an_array_slot_does_not_run(directory, slot):
     marker = directory + '.executed'
-    write_row(directory, persid(array_pid(pickle.dumps(Poison(marker)))))
+    poison = pickle.dumps(Poison(marker))
+    if slot == 'header':
+        parts = raw(poison)
+    else:
+        parts = npy("'|S%d'" % len(poison), '(1,)', poison)
+    write_row(directory, persid(array_pid(parts)))
 
     with dc.Cache(directory, disk=MissDisk) as cache:
-        assert cache.get('key', 'default') == 'default'
+        result = cache.get('key', 'default')
 
     assert not op.exists(marker)
+    if slot == 'header':
+        assert result == 'default'
+    else:
+        assert result.tobytes() == poison
 
 
 FORGED = {
-    'garbage': b'not an array',
-    'empty': b'',
-    'pickle': pickle.dumps([1, 2]),
-    'zip magic': b'PK\x03\x04' + b'\x00' * 40,
-    'npz-like': b'PK\x05\x06' + b'\x00' * 18,
+    'garbage': raw(b'not an array'),
+    'empty': raw(b''),
+    'empty with data': raw(b'', b'\x00' * 8),
+    'pickle': raw(pickle.dumps([1, 2])),
+    'zip magic': raw(b'PK\x03\x04' + b'\x00' * 40),
+    'npz-like': raw(b'PK\x05\x06' + b'\x00' * 18),
+    'trailing header bytes': raw(
+        npy("'<f8'", '(1,)')[0] + b'\x00', b'\x00' * 8
+    ),
+    'header split into data': raw(
+        npy("'<f8'", '(1,)')[0][:-8],
+        npy("'<f8'", '(1,)')[0][-8:] + b'\x00' * 8,
+    ),
     'truncated': npy("'<f8'", '(4,)', b'\x00' * 8),
     'too long': npy("'<f8'", '(1,)', b'\x00' * 16),
     'huge shape': npy("'<f8'", '(%d,)' % 10**15),
@@ -966,12 +1076,18 @@ FORGED = {
     'nested object': npy("[('a', [('b', '|O')])]", '(1,)', b'\x00' * 8),
     'subarray object': npy("[('a', '|O', (2,))]", '(1,)', b'\x00' * 16),
     'bad descr': npy("'not a dtype'", '(1,)', b'\x00'),
-    'bad header': b'\x93NUMPY\x01\x00\x10\x00' + b'x' * 16,
+    'bad header': raw(b'\x93NUMPY\x01\x00\x10\x00' + b'x' * 16),
     'bad header type': npy_header('[1, 2, 3]'),
-    'non-ascii header': b'\x93NUMPY\x01\x00\x04\x00\xff\xfe\xfd\n',
-    'unknown version': b'\x93NUMPY\x09\x00\x10\x00' + b'x' * 16,
-    'version 3': b'\x93NUMPY\x03\x00' + npy("'<f8'", '(1,)')[8:],
-    'huge header size': b'\x93NUMPY\x02\x00' + struct.pack('<I', 2**31),
+    'non-ascii header': raw(b'\x93NUMPY\x01\x00\x04\x00\xff\xfe\xfd\n'),
+    'unknown version': raw(b'\x93NUMPY\x09\x00\x10\x00' + b'x' * 16),
+    'version 3': raw(
+        b'\x93NUMPY\x03\x00' + npy("'<f8'", '(1,)')[0][8:], b'\x00' * 8
+    ),
+    'version 3 in the v2 layout': raw(
+        b'\x93NUMPY\x03\x00' + npy("'<f8'", '(1,)', version=2)[0][8:],
+        b'\x00' * 8,
+    ),
+    'huge header size': raw(b'\x93NUMPY\x02\x00' + struct.pack('<I', 2**31)),
     'parser bomb': npy_header('~' * 9000),
     'deep brackets': npy_header('[' * 9000),
     'zero width void': npy("'|V0'", '(%d,)' % 10**15),
@@ -1001,20 +1117,28 @@ def test_forged_array_is_a_miss(directory, data):
         same(cache['key'], np.arange(2.0))
 
 
+HEADER, DATA = npy_parts(np.arange(2.0))
+
 FORGED_IDS = {
     'bytes': b'data',
-    'list': ['npy', bytearray(npy_bytes(np.arange(2.0)))],
+    'list': ['npy', HEADER, bytearray(DATA)],
     'set': frozenset(['npy']),
     'one item': ('npy',),
-    'three items': ('npy', bytearray(b'data'), 1),
-    'unknown kind': ('other', bytearray(b'data')),
-    'old item kind': ('item', 1.5),
-    'kind not a string': (1, bytearray(b'data')),
-    'array of bytes': ('npy', npy_bytes(np.arange(2.0))),
-    'array of str': ('npy', 'text'),
-    'array of int': ('npy', 1),
-    'array of none': ('npy', None),
-    'array of list': ('npy', [1, 2]),
+    'two items': ('npy', bytearray(HEADER + DATA)),
+    'four items': ('npy', HEADER, bytearray(DATA), 1),
+    'unknown kind': ('other', HEADER, bytearray(DATA)),
+    'old item kind': ('item', 1.5, 1),
+    'kind not a string': (1, HEADER, bytearray(DATA)),
+    'header bytearray': ('npy', bytearray(HEADER), bytearray(DATA)),
+    'header str': ('npy', HEADER.decode('latin1'), bytearray(DATA)),
+    'header none': ('npy', None, bytearray(DATA)),
+    'data bytes': ('npy', HEADER, DATA),
+    'data str': ('npy', HEADER, 'text'),
+    'data int': ('npy', HEADER, 1),
+    'data none': ('npy', HEADER, None),
+    'data list': ('npy', HEADER, [1, 2]),
+    'data array': ('npy', HEADER, Pid(('npy', HEADER, bytearray(DATA)))),
+    'header and data swapped': ('npy', bytes(DATA), bytearray(HEADER)),
     'scalar with two items': ('scalar', 'float64'),
     'scalar with four items': ('scalar', 'float64', 1.0, 1),
     'scalar of unknown type': ('scalar', 'object', 1),
@@ -1053,7 +1177,7 @@ def test_forged_persistent_id_is_refused(directory, pid):
 
 @pytest.mark.parametrize(
     'pid',
-    [array_pid(npy_bytes(np.arange(2.0))), ('scalar', 'int64', 1)],
+    [array_pid(npy_parts(np.arange(2.0))), ('scalar', 'int64', 1)],
     ids=['array', 'scalar'],
 )
 def test_persistent_id_in_a_key_row_is_refused(directory, pid):
@@ -1111,7 +1235,7 @@ def test_forged_array_nested_in_a_value_is_a_miss(directory):
 
 def test_one_id_used_many_times_decodes_once(directory):
     """A row cannot decode to more than the data it holds."""
-    pid = Pid(array_pid(npy_bytes(np.zeros(1000))))
+    pid = Pid(array_pid(npy_parts(np.zeros(1000))))
     write_row(directory, forge([pid] * 1001))
 
     with dc.Cache(directory, disk=ArrayDisk) as cache:
@@ -1122,14 +1246,101 @@ def test_one_id_used_many_times_decodes_once(directory):
 
 
 def test_one_buffer_in_many_ids_decodes_once(directory):
-    data = bytearray(npy_bytes(np.zeros(1000)))
-    write_row(directory, forge([Pid(('npy', data)) for _ in range(1001)]))
+    header, data = npy_parts(np.zeros(1000))
+    data = bytearray(data)
+    write_row(
+        directory, forge([Pid(('npy', header, data)) for _ in range(1001)])
+    )
 
     with dc.Cache(directory, disk=ArrayDisk) as cache:
         result = cache['key']
 
     assert len(result) == 1001
     assert all(item is result[0] for item in result)
+
+
+def test_unshared_empty_arrays_stay_distinct(directory):
+    """An empty array keeps no reference to its buffer, so a freed pair's
+    ids may be reused: the memo holds the pair."""
+    # Built by hand, so that nothing is memoized by the pickle itself.
+    items = b''
+    for width in range(1, 51):
+        header = npy("'<f8'", '(0, %d)' % width)[0]
+        items += (
+            b'\x8c\x03npy'
+            + b'C'
+            + bytes([len(header)])
+            + header
+            + b'\x96'
+            + (0).to_bytes(8, 'little')
+            + b'\x87Q'
+        )
+    write_row(directory, b'\x80\x05](' + items + b'e.')
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        result = cache['key']
+
+    assert [item.shape for item in result] == [
+        (0, width) for width in range(1, 51)
+    ]
+
+
+def test_dtype_with_a_header_over_the_limit_is_refused(directory):
+    """numpy refuses to read a header over 10000 bytes, so it is refused
+    at write time rather than stored unreadable."""
+    array = np.zeros(1, dtype=[('field%04d' % i, 'u1') for i in range(1000)])
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='cannot store an array'):
+            cache['key'] = array
+        assert len(cache) == 0
+
+
+def test_one_buffer_under_two_headers_is_two_views(directory):
+    """Two headers over one buffer are checked and decoded separately, and
+    neither decode copies the buffer."""
+    header, data = npy_parts(np.arange(6.0))
+    data = bytearray(data)
+    other = npy("'<f8'", '(2, 3)')[0]
+    assert other != header
+    pids = [Pid(('npy', header, data)), Pid(('npy', other, data))]
+    write_row(directory, forge(pids))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        first, second = cache['key']
+
+    assert first.shape == (6,)
+    assert second.shape == (2, 3)
+    assert np.shares_memory(first, second)
+
+
+@pytest.mark.parametrize(
+    'dtype',
+    [
+        Pid(('scalar', 'float64', 1.0)),
+        Pid(('npy', HEADER, bytearray(DATA))),
+        '<f8',
+        8,
+        None,
+    ],
+    ids=['scalar', 'array', 'str', 'int', 'none'],
+)
+def test_build_on_an_array_cannot_set_its_dtype(directory, dtype):
+    """numpy restores an array's internal flags from a dtype in its pickle
+    state without checking them, so BUILD on a stored array must be refused.
+    It is, because no allowed name and no persistent ID can make a dtype,
+    and ndarray.__setstate__ accepts nothing else in that slot."""
+    array = Pid(array_pid(npy_parts(np.arange(3.0))))
+    state = (1, (3,), dtype, False, bytearray(24))
+    data = b'\x80\x05' + forge(array)[2:-1] + forge(state)[2:-1] + b'b.'
+    write_row(directory, data)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError):
+            cache['key']
+
+    with dc.Cache(directory, disk=MissDisk) as cache:
+        assert cache.get('key', 'default') == 'default'
 
 
 @pytest.mark.parametrize(

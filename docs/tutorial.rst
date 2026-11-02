@@ -1078,12 +1078,17 @@ in numpy's ``.npy`` format:
     cache['embedding'] = numpy.arange(3.0)
     cache['result'] = {'scores': numpy.zeros(2), 'best': numpy.float64(1.5)}
 
-* An array anywhere in a value is saved with ``allow_pickle=False``, including
-  inside classes allowed with :meth:`SafeDisk.with_types
+* An array anywhere in a value is stored as its ``.npy`` header and its data,
+  including inside classes allowed with :meth:`SafeDisk.with_types
   <diskcache_community.SafeDisk.with_types>`, which can be called before or
-  after ``with_numpy``. Its header is checked against the data before it is
-  read back, also with ``allow_pickle=False``. An array that appears twice in a
-  value is stored once and is one array when read back.
+  after ``with_numpy``. The header is checked against the data before it is
+  read back. An array that appears twice in a value is stored once and is one
+  array when read back. Writing copies the array once, into the row, as the
+  default :class:`Disk <diskcache_community.Disk>` does, and reading takes no
+  second copy of it.
+* A value outside the standard-library types is pickled at protocol 5 or
+  higher, whatever ``disk_pickle_protocol`` says, so that array data can be
+  stored in place. Other values use the configured protocol.
 * numpy booleans, integers, floats, complex numbers and strings read back as
   the same numpy type with the same value, including NaN.
 * Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
