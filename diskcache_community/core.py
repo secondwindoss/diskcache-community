@@ -1595,100 +1595,6 @@ class _ForkGate:
 
 _FORK_GATE = _ForkGate()
 
-
-class _Transaction:
-    """Context manager for a transaction on a Cache, from `Cache._transact`.
-
-    Entering it yields ``(sql, cleanup)``: the statement function and a
-    callable that records a value file to remove once the transaction
-    commits. A class rather than a generator with ``contextmanager``, which
-    costs a measurable share of every write.
-
-    """
-
-    __slots__ = (
-        '_cache',
-        '_retry',
-        '_filename',
-        '_sql',
-        '_tid',
-        '_begin',
-        '_names',
-    )
-
-    def __init__(self, cache, retry, filename):
-        self._cache = cache
-        self._retry = retry
-        self._filename = filename
-        self._sql = None
-        self._tid = None
-        self._begin = False
-        self._names = None
-
-    def __enter__(self):
-        cache = self._cache
-        _FORK_GATE.__enter__()
-        try:
-            sql = self._sql = cache._sql
-            tid = self._tid = threading.get_ident()
-
-            if tid != cache._txn_id:
-                # A read-only cache cannot take the reserved lock that
-                # BEGIN IMMEDIATE asks for; its transactions only read.
-                begin_statement = (
-                    'BEGIN' if cache._read_only else 'BEGIN IMMEDIATE'
-                )
-
-                while True:
-                    try:
-                        sql(begin_statement)
-                        self._begin = True
-                        cache._txn_id = tid
-                        break
-                    except sqlite3.OperationalError:
-                        if self._retry:
-                            continue
-                        if self._filename is not None:
-                            cache._disk.remove(self._filename)
-                        raise Timeout from None
-        except BaseException:
-            _FORK_GATE.__exit__()
-            raise
-
-        self._names = []
-        return sql, self._names.append
-
-    def __exit__(self, exc_type, error, traceback):
-        cache = self._cache
-        try:
-            if exc_type is not None:
-                if self._begin:
-                    assert cache._txn_id == self._tid
-                    cache._txn_id = None
-                    self._sql('ROLLBACK')
-                if (
-                    cache._read_only
-                    and isinstance(error, sqlite3.OperationalError)
-                    and 'readonly' in str(error)
-                ):
-                    raise ReadOnlyError(
-                        'cache in %r is read-only' % cache._directory
-                    ) from error
-                return False
-
-            if self._begin:
-                assert cache._txn_id == self._tid
-                cache._txn_id = None
-                self._sql('COMMIT')
-            remove = cache._disk.remove
-            for name in self._names:
-                if name is not None:
-                    remove(name)
-            return False
-        finally:
-            _FORK_GATE.__exit__()
-
-
 # Every live Cache, so a child process can forget inherited connections.
 _CACHES: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 
@@ -2201,8 +2107,61 @@ class Cache:
         with self._transact(retry=retry):
             yield
 
+    @cl.contextmanager
     def _transact(self, retry=False, filename=None):
-        return _Transaction(self, retry, filename)
+        with _FORK_GATE:
+            sql = self._sql
+            filenames = []
+            _disk_remove = self._disk.remove
+            tid = threading.get_ident()
+            txn_id = self._txn_id
+
+            if tid == txn_id:
+                begin = False
+            else:
+                # A read-only cache cannot take the reserved lock that
+                # BEGIN IMMEDIATE asks for; its transactions only read.
+                begin_statement = (
+                    'BEGIN' if self._read_only else 'BEGIN IMMEDIATE'
+                )
+
+                while True:
+                    try:
+                        sql(begin_statement)
+                        begin = True
+                        self._txn_id = tid
+                        break
+                    except sqlite3.OperationalError:
+                        if retry:
+                            continue
+                        if filename is not None:
+                            _disk_remove(filename)
+                        raise Timeout from None
+
+            try:
+                yield sql, filenames.append
+            except BaseException as error:
+                if begin:
+                    assert self._txn_id == tid
+                    self._txn_id = None
+                    sql('ROLLBACK')
+                if (
+                    self._read_only
+                    and isinstance(error, sqlite3.OperationalError)
+                    and 'readonly' in str(error)
+                ):
+                    raise ReadOnlyError(
+                        'cache in %r is read-only' % self._directory
+                    ) from error
+                raise
+            else:
+                if begin:
+                    assert self._txn_id == tid
+                    self._txn_id = None
+                    sql('COMMIT')
+                for name in filenames:
+                    if name is not None:
+                        _disk_remove(name)
 
     def set(self, key, value, expire=None, read=False, tag=None, retry=False):
         """Set `key` and `value` item in cache.
