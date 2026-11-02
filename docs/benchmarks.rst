@@ -20,8 +20,8 @@ Environment
 
 - memcached: memcached 1.6.45
 - Redis: 8.10.2
-- diskcache-community Cache: diskcache-community 5.7.0
-- diskcache-community FanoutCache(8): diskcache-community 5.7.0
+- diskcache-community Cache: diskcache-community 5.7.0 (measured 2026-10-12)
+- diskcache-community FanoutCache(8): diskcache-community 5.7.0 (measured 2026-10-12)
 - diskcache 5.6.3 Cache: diskcache 5.6.3
 - memcached, pymemcache: pymemcache 4.0.0
 - memcached, pylibmc: pylibmc 1.6.3, libmemcached 1.0.18

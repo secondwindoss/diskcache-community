@@ -601,7 +601,7 @@ _SAFE_TZ_TYPES = (type(None), dt.timezone)
 # the internal flags of a dtype from its pickle without checking them, so a
 # crafted pickle can make an array read raw bytes as object pointers.
 
-UNSAFE_MODULES = ('numpy',)
+_UNSAFE_MODULES = ('numpy',)
 
 _PICKLE_STRING_OPS = frozenset(
     {'BINUNICODE', 'BINUNICODE8', 'SHORT_BINUNICODE', 'UNICODE'}
@@ -707,17 +707,16 @@ class SafeUnpickler(pickle.Unpickler):
 
     Every pickle opcode that can call code (GLOBAL, STACK_GLOBAL, INST, OBJ,
     NEWOBJ, NEWOBJ_EX and REDUCE) obtains its callable through `find_class`,
-    so restricting `find_class` to a fixed set of constructors is enough to
-    keep a crafted pickle from running code.
+    so restricting `find_class` to a fixed set of constructors keeps every
+    name a pickle resolves inside the allowlist.
 
     By default the allowlist is SAFE_PICKLE_NAMES. `names` replaces that
     mapping of module to names, `classes` adds classes by identity, and
     `modules` adds every class defined in the given modules or below them.
     A class is looked up attribute by attribute and every step must be a
-    class, so a name such as ``os.system`` that reaches a function through a
-    module imported by a trusted module is refused. Classes are looked up
-    only in modules that are already imported; reading a pickle never
-    imports a module, so it cannot run a module's top-level code.
+    class, so dotted names that pass through a module or a dunder attribute
+    are refused. Classes are looked up only in modules that are already
+    imported; reading a pickle never imports a module.
 
     """
 
@@ -869,8 +868,7 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        numpy classes are refused, see ``UNSAFE_MODULES``; use
-        :meth:`with_numpy` to store arrays.
+        numpy classes are refused; use :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -884,13 +882,13 @@ class SafeDisk(Disk):
         :return: SafeDisk subclass to pass as ``disk=``
         :raises TypeError: if an entry of `types` is not a class
         :raises ValueError: if an entry of `modules` is not a module name, or
-            a type or module is in ``UNSAFE_MODULES``
+            a type or module is numpy (arrays belong to :meth:`with_numpy`)
 
         """
         for entry in types:
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
-            if _in_modules(entry.__module__, UNSAFE_MODULES):
+            if _in_modules(entry.__module__, _UNSAFE_MODULES):
                 raise ValueError(
                     'with_types refuses the class %r; use with_numpy() to'
                     ' store arrays' % (entry,)
@@ -908,7 +906,7 @@ class SafeDisk(Disk):
             if any(
                 _in_modules(prefix, (unsafe,))
                 or _in_modules(unsafe, (prefix,))
-                for unsafe in UNSAFE_MODULES
+                for unsafe in _UNSAFE_MODULES
             ):
                 raise ValueError(
                     'with_types refuses the module %r; use with_numpy() to'
@@ -930,21 +928,21 @@ class SafeDisk(Disk):
     def with_numpy(cls):
         """Return a SafeDisk subclass that also stores numpy arrays.
 
-        :class:`SafeDisk` refuses numpy, because unpickling an array is not
-        memory-safe (see ``UNSAFE_MODULES``). The returned class writes
-        arrays through pickle's persistent IDs in numpy's ``.npy`` format
-        with ``allow_pickle=False``, anywhere in a value, and checks each
-        header before it reads an array back. numpy scalars keep their type.
+        The returned class writes arrays through pickle's persistent IDs in
+        numpy's ``.npy`` format with ``allow_pickle=False``, anywhere in a
+        value except in keys, and checks each header before it reads an
+        array back. (Plain :class:`SafeDisk` refuses numpy pickles, because
+        unpickling an array is not memory-safe.) numpy scalars keep their
+        type.
         Object arrays, ``ndarray`` subclasses and other numpy scalars raise
         :exc:`TypeError` when written. It combines with :meth:`with_types`
         and :meth:`with_options` in any order.
 
         A value with no numpy in it is an ordinary pickle. An entry holding
-        numpy data cannot be read by any other disk, or by diskcache 5.6.3:
-        they raise :exc:`pickle.UnpicklingError` for it, and a disk with
-        ``on_error='miss'`` deletes it, so select this disk in every process
-        that shares the directory. A process without numpy raises
-        :exc:`ImportError` for such an entry and keeps it.
+        numpy data cannot be read by any other disk, or by diskcache 5.6.3,
+        so select this disk in every process that shares the directory. A
+        process without numpy raises :exc:`ImportError` for such an entry
+        and keeps it.
 
         >>> ArrayDisk = SafeDisk.with_numpy()
         >>> ArrayDisk.safe_numpy
@@ -1097,7 +1095,7 @@ class SafeDisk(Disk):
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        # Keys never hold numpy, so a key row gets no persistent IDs.
+        # Keys exclude numpy, so a key row gets no persistent IDs.
         return self._plain_unpickler(io.BytesIO(key)).load()
 
     def store(self, value, read, key=UNKNOWN):
@@ -1131,9 +1129,9 @@ class SafeJSONDisk(JSONDisk, SafeDisk):
     """Disk that stores JSON like :class:`JSONDisk` and never reads a pickle.
 
     :class:`JSONDisk` writes only compressed JSON, but it inherits the
-    :func:`pickle.load` calls of :class:`Disk`, so a row crafted to say that
-    it holds a pickle still runs code in the process that reads it
-    (CVE-2025-69872). :class:`SafeJSONDisk` closes that path:
+    :func:`pickle.load` calls of :class:`Disk`, so it still reads pickles
+    from crafted rows (CVE-2025-69872). :class:`SafeJSONDisk` closes that
+    path:
 
     * A pickled key or value raises :exc:`pickle.UnpicklingError` without
       being parsed, whatever it contains, because this disk never writes one.

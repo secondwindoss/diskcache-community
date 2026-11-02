@@ -1,7 +1,7 @@
 DiskCache API Reference
 =======================
 
-.. py:module:: diskcache
+.. py:module:: diskcache_community
 
 The :doc:`tutorial` provides a helpful walkthrough of most methods.
 
@@ -151,7 +151,7 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
    The Python types that :class:`SafeDisk <diskcache_community.SafeDisk>` accepts
    for writing; exactly the types the names above read back.
 
-.. data:: diskcache_community.core.UNSAFE_MODULES
+.. data:: diskcache_community.core._UNSAFE_MODULES
 
    Packages whose classes :meth:`SafeDisk.with_types
    <diskcache_community.SafeDisk.with_types>` refuses to allow, because

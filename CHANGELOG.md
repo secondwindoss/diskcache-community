@@ -16,6 +16,10 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 - A float NaN stored as a value is kept, on every disk. It was written to SQLite, which stores NaN as NULL, so it read back as `None`. It is now stored as a pickle, which 5.6.3 reads too (PR #34).
 - `memoize_stampede` works with `SafeDisk`: the key of its early recomputation marker held the internal `ENOVAL` constant, which `SafeDisk` refuses, so a call raised `TypeError` once a cached value neared expiry (PR #32).
 
+### Packaging
+
+- The package installs on Python 3.8 and later (PR #36).
+
 ## 5.8.1 (2026-10-18)
 
 Ships type stubs and installs on Python 3.9. The code and the files on disk are unchanged from 5.8.0.
