@@ -20,6 +20,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 ### Performance
 
 - `Cache.get` is about 15% faster on a hit and 12% on a miss, and `DjangoCache.get` about 16%: a plain lookup reads only the value columns, on a cursor reused per thread (PR #38).
+- `Cache.set` is about 15% faster, and `DjangoCache.set` about 17%: each write runs fewer SQL statements and less Python (PR #37).
 
 ### Packaging
 

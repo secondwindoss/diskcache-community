@@ -386,6 +386,16 @@ def test_read_only_django(directory):
     cache.close()
 
 
+def test_read_only_volume_without_size_row(directory):
+    with dc.Cache(directory) as cache:
+        cache['a'] = 1
+        cache._sql("DELETE FROM Settings WHERE key = 'size'")
+
+    with dc.Cache(directory, read_only=True) as cache:
+        assert cache.volume() > 0
+        assert cache.size == 0
+
+
 def test_read_only_without_metadata_rows(directory):
     with dc.Cache(directory) as cache:
         cache['a'] = 1

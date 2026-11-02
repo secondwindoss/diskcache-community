@@ -1618,6 +1618,9 @@ _NOT_UNREADABLE = (OSError, MemoryError, RecursionError, _ReaderMissing)
 # Connections inherited from a parent process, kept open on purpose.
 _INHERITED_CONNECTIONS: 'list[sqlite3.Connection]' = []
 
+# SQLite 3.16 added table-valued pragma functions such as pragma_page_count().
+_PRAGMA_FUNCTIONS = sqlite3.sqlite_version_info >= (3, 16, 0)
+
 
 def _before_fork():
     # SQLite advises closing every connection before fork. The gate waits
@@ -2209,20 +2212,37 @@ class Cache:
         # need cleanup.
 
         with self._transact(retry, filename) as (sql, cleanup):
-            rows = sql(
-                'SELECT rowid, filename FROM Cache'
-                ' WHERE key = ? AND raw = ?',
+            # One statement finds the row for `key`, if any, and the earliest
+            # expire time in the cache, so that culling can skip its search
+            # for expired items when there are none.
+            ((earliest, rowid, old_filename),) = sql(
+                'SELECT'
+                ' (SELECT min(expire_time) FROM Cache'
+                ' WHERE expire_time IS NOT NULL),'
+                ' Cache.rowid, Cache.filename'
+                ' FROM (SELECT 1) LEFT JOIN Cache'
+                ' ON Cache.key = ? AND Cache.raw = ?',
                 (db_key, raw),
             ).fetchall()
 
-            if rows:
-                ((rowid, old_filename),) = rows
+            if rowid is not None:
                 cleanup(old_filename)
                 self._row_update(rowid, now, columns)
             else:
                 self._row_insert(db_key, raw, now, columns)
 
-            self._cull(now, sql, cleanup)
+            # The row just written may itself have expired already.
+            if expire_time is not None and (
+                earliest is None or expire_time < earliest
+            ):
+                earliest = expire_time
+
+            self._cull(
+                now,
+                sql,
+                cleanup,
+                expired=earliest is not None and earliest < now,
+            )
 
             return True
 
@@ -2289,7 +2309,9 @@ class Cache:
             ),
         )
 
-    def _cull(self, now, sql, cleanup, limit=None):
+    def _cull(self, now, sql, cleanup, limit=None, expired=True):
+        # `expired` is False when the caller knows that no item has expired,
+        # which skips the search for expired items.
         cull_limit = self.cull_limit if limit is None else limit
 
         if cull_limit == 0:
@@ -2303,8 +2325,11 @@ class Cache:
             ' ORDER BY expire_time LIMIT ?'
         )
 
-        select_expired = select_expired_template % 'filename'
-        rows = sql(select_expired, (now, cull_limit)).fetchall()
+        if expired:
+            select_expired = select_expired_template % 'filename'
+            rows = sql(select_expired, (now, cull_limit)).fetchall()
+        else:
+            rows = []
 
         if rows:
             delete_expired = 'DELETE FROM Cache WHERE rowid IN (%s)' % (
@@ -3986,6 +4011,18 @@ class Cache:
         :return: size in bytes
 
         """
+        if _PRAGMA_FUNCTIONS:
+            # One statement instead of two: set calls this on every write
+            # when an eviction policy is in effect.
+            rows = self._sql_retry(
+                'SELECT (SELECT page_count FROM pragma_page_count()), value'
+                " FROM Settings WHERE key = 'size'"
+            ).fetchall()
+            if rows:
+                ((page_count, size),) = rows
+                setattr(self, 'size', size)  # As reset('size') does.
+                return self._page_size * page_count + size
+
         ((page_count,),) = self._sql('PRAGMA page_count').fetchall()
         total_size = self._page_size * page_count + self.reset('size')
         return total_size
