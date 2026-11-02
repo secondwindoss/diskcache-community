@@ -13,6 +13,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Fixes
 
+- `Cache.get`, and so `FanoutCache.get` and `DjangoCache.get`, is as fast on a hit as in 5.6.3 again. Since 5.7.0 every call selected the `store_time` column and built the metadata tuple even when `store_time` was not asked for, which made a hit about 5% slower. Both now happen only when metadata is requested, and results are unchanged (PR #35).
 - A float NaN stored as a value is kept, on every disk. It was written to SQLite, which stores NaN as NULL, so it read back as `None`. It is now stored as a pickle, which 5.6.3 reads too (PR #34).
 - `memoize_stampede` works with `SafeDisk`: the key of its early recomputation marker held the internal `ENOVAL` constant, which `SafeDisk` refuses, so a call raised `TypeError` once a cached value neared expiry (PR #32).
 
