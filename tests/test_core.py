@@ -325,7 +325,10 @@ def test_get_expired_fast_path(cache):
     assert cache.get(0) is None
 
 
-def test_get_ioerror_fast_path(cache):
+@pytest.mark.parametrize(
+    'kwargs, expected', [({}, None), ({'tag': True}, (None, None))]
+)
+def test_get_ioerror_fast_path(cache, kwargs, expected):
     assert cache.set(0, 0)
 
     disk = mock.Mock()
@@ -340,7 +343,7 @@ def test_get_ioerror_fast_path(cache):
     fetch.side_effect = io_error
 
     with mock.patch.object(cache, '_disk', disk):
-        assert cache.get(0) is None
+        assert cache.get(0, **kwargs) == expected
 
 
 def test_get_expired_slow_path(cache):
