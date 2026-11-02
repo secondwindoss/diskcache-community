@@ -173,9 +173,9 @@ def verify_statistics(path):
         check_clean(cache)
 
 
-def verify_jsondisk(path):
-    """Assert the JSONDisk cache reads back through JSONDisk."""
-    with diskcache.Cache(path, disk=diskcache.JSONDisk) as cache:
+def verify_jsondisk(path, disk=diskcache.JSONDisk):
+    """Assert the JSONDisk cache reads back through `disk`."""
+    with diskcache.Cache(path, disk=disk) as cache:
         check_settings(cache, recipe.JSON_SETTINGS)
         assert isinstance(cache.disk, diskcache.JSONDisk)
         assert len(cache) == len(recipe.JSON_ENTRIES)

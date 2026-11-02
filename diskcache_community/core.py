@@ -1027,6 +1027,39 @@ class SafeDisk(Disk):
         super().remove(file_path)
 
 
+class SafeJSONDisk(JSONDisk, SafeDisk):
+    """Disk that stores JSON like :class:`JSONDisk` and never reads a pickle.
+
+    :class:`JSONDisk` writes only compressed JSON, but it inherits the
+    :func:`pickle.load` calls of :class:`Disk`, so a row crafted to say that
+    it holds a pickle still runs code in the process that reads it
+    (CVE-2025-69872). :class:`SafeJSONDisk` closes that path:
+
+    * A pickled key or value raises :exc:`pickle.UnpicklingError` without
+      being parsed, whatever it contains, because this disk never writes one.
+    * Paths read from the ``filename`` column are confined to the cache
+      directory, as in :class:`SafeDisk`.
+
+    The on-disk format is the one :class:`JSONDisk` writes, so a directory
+    written with either opens with the other. Keys and values are limited to
+    what JSON can hold, and with no pickles to read there is no allowlist for
+    :meth:`SafeDisk.with_types` to extend.
+
+    """
+
+    def get(self, key, raw):
+        if not raw:
+            raise pickle.UnpicklingError('SafeJSONDisk refuses a pickled key')
+        return super().get(key, raw)
+
+    def fetch(self, mode, filename, value, read):
+        if mode == MODE_PICKLE:
+            raise pickle.UnpicklingError(
+                'SafeJSONDisk refuses a pickled value'
+            )
+        return super().fetch(mode, filename, value, read)
+
+
 _LOGGER = logging.getLogger('diskcache_community')
 
 ENV_DISK = 'DISKCACHE_DISK'

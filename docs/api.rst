@@ -157,6 +157,16 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
    <diskcache_community.SafeDisk.with_types>` refuses to allow, because
    unpickling them is not memory-safe.
 
+SafeJSONDisk
+------------
+
+Read the :ref:`SafeJSONDisk tutorial <tutorial-safejsondisk>` for details.
+
+.. autoclass:: diskcache_community.SafeJSONDisk
+   :members:
+   :special-members:
+   :exclude-members: __weakref__
+
 Default disk
 ------------
 
