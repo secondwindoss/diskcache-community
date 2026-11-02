@@ -22,10 +22,6 @@ Where this fork stands:
 - `SafeDisk.with_numpy()` returns a `SafeDisk` that also stores numpy arrays, in the `.npy` format rather than as pickles. numpy pickles stay refused, because unpickling an array is not memory-safe.
 - The default stays as it is. Existing caches hold objects outside any allowlist, such as instances of your own classes, Django responses and the keys of `memoize(typed=True)`, so `SafeDisk` remains an explicit choice.
 
-Unless you have opted into `SafeDisk` or `SafeJSONDisk`, treat the cache directory as trusted input: keep it on local storage that only the user running the process can write to, and do not share it with other accounts.
-
-A note on scanners: vulnerability scanners match on the distribution name, so `pip-audit`, Dependabot and similar tools report nothing for `diskcache-community` even though the default `Disk` behaves as it did in 5.6.3. A clean scan is not evidence that this issue is fixed. Use the list above instead, and the release notes of the version you run.
-
 ## Dependencies
 
 The library has no runtime dependencies. Advisories for the development and CI dependencies are tracked through Dependabot alerts on this repository.
