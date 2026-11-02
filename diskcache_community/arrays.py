@@ -14,27 +14,27 @@ _MIN_PROTOCOL = 5
 # longest header that numpy parses by default, plus padding.
 _HEADER_LIMIT = 12 + 10000 + 64
 
-# The numpy scalar types that are stored, by the name written to the row. The
+# The numpy scalar types that are stored, by the name written to the row, with
+# the Python type that ``item()`` gives for each and the reader insists on. The
 # names do not vary by platform or numpy version, unlike the types' own names.
 _SCALARS = {
-    'bool': 'bool_',
-    'int8': 'int8',
-    'int16': 'int16',
-    'int32': 'int32',
-    'int64': 'int64',
-    'uint8': 'uint8',
-    'uint16': 'uint16',
-    'uint32': 'uint32',
-    'uint64': 'uint64',
-    'float16': 'float16',
-    'float32': 'float32',
-    'float64': 'float64',
-    'complex64': 'complex64',
-    'complex128': 'complex128',
-    'str': 'str_',
-    'bytes': 'bytes_',
+    'bool': ('bool_', bool),
+    'int8': ('int8', int),
+    'int16': ('int16', int),
+    'int32': ('int32', int),
+    'int64': ('int64', int),
+    'uint8': ('uint8', int),
+    'uint16': ('uint16', int),
+    'uint32': ('uint32', int),
+    'uint64': ('uint64', int),
+    'float16': ('float16', float),
+    'float32': ('float32', float),
+    'float64': ('float64', float),
+    'complex64': ('complex64', complex),
+    'complex128': ('complex128', complex),
+    'str': ('str_', str),
+    'bytes': ('bytes_', bytes),
 }
-_SCALAR_VALUES = (bool, int, float, complex, str, bytes)
 
 
 def _import_numpy():
@@ -141,15 +141,22 @@ def _scalar_name(scalar):
 
 
 def _unpack_scalar(name, value):
-    """Return the numpy scalar `value` of type `name`, which may be forged."""
+    """Return the numpy scalar `value` of type `name`, which may be forged.
+
+    The value must be of the Python type the name is built from: numpy
+    would otherwise build something else, such as ``bytes_(n)``, which is
+    `n` zero bytes.
+
+    """
     # pylint: disable=broad-except,unidiomatic-typecheck
-    if type(value) not in _SCALAR_VALUES:
+    entry = _SCALARS.get(name) if type(name) is str else None
+    if entry is None or type(value) is not entry[1]:
         raise pickle.UnpicklingError('SafeDisk refuses a scalar')
 
     numpy = _import_numpy()
 
     try:
-        return getattr(numpy, _SCALARS[name])(value)
+        return getattr(numpy, entry[0])(value)
     except Exception as error:
         raise pickle.UnpicklingError('SafeDisk refuses a scalar') from error
 
@@ -207,12 +214,22 @@ class _ArrayUnpickler(SafeUnpickler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._arrays = {}
+        self._strings = {}
 
     def persistent_load(self, pid):
         # pylint: disable=unidiomatic-typecheck
         if type(pid) is tuple:
             if len(pid) == 3 and pid[0] == 'scalar':
-                return _unpack_scalar(pid[1], pid[2])
+                value = pid[2]
+                if type(value) not in (str, bytes):
+                    return _unpack_scalar(pid[1], value)
+                # A string the pickle memoized is copied into a numpy scalar
+                # once, however many IDs name it, as an array buffer is.
+                entry = self._strings.get(id(value))
+                if entry is None:
+                    entry = (value, _unpack_scalar(pid[1], value))
+                    self._strings[id(value)] = entry
+                return entry[1]
             if len(pid) == 2 and pid[0] == 'npy':
                 payload = pid[1]
                 if type(payload) is bytearray:

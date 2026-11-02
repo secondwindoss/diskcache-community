@@ -610,6 +610,49 @@ _PICKLE_GET_OPS = frozenset({'BINGET', 'GET', 'LONG_BINGET'})
 _PICKLE_PUT_OPS = frozenset({'BINPUT', 'LONG_BINPUT', 'PUT'})
 _PICKLE_EXT_OPS = frozenset({'EXT1', 'EXT2', 'EXT4'})
 
+# Opcodes whose argument is a length-prefixed string or buffer, with the width
+# of the length, and the longest one the scan reads. A longer one is an array
+# or a large string in a value, which cannot name a module, so it is skipped
+# instead of copied.
+_PICKLE_BLOB_OPS = {
+    'BINBYTES': 4,
+    'BINBYTES8': 8,
+    'BINUNICODE': 4,
+    'BINUNICODE8': 8,
+    'BYTEARRAY8': 8,
+}
+_PICKLE_BLOB_LIMIT = 4096
+
+
+def _pickle_ops(data):
+    """Yield (opcode, arg) for the pickle `data`, as pickletools.genops does.
+
+    `data` was written by pickle, so it ends with STOP. The argument of a
+    blob opcode over _PICKLE_BLOB_LIMIT bytes is None.
+
+    """
+    file = io.BytesIO(data)
+
+    while True:
+        opcode = pickletools.code2op[file.read(1).decode('latin-1')]
+        width = _PICKLE_BLOB_OPS.get(opcode.name)
+
+        if width is None:
+            arg = None if opcode.arg is None else opcode.arg.reader(file)
+        else:
+            size = int.from_bytes(file.read(width), 'little')
+            if size > _PICKLE_BLOB_LIMIT:
+                file.seek(size, io.SEEK_CUR)
+                arg = None
+            else:
+                file.seek(-width, io.SEEK_CUR)
+                arg = opcode.arg.reader(file)
+
+        yield opcode, arg
+
+        if opcode.name == 'STOP':
+            return
+
 
 def _in_modules(module, modules):
     """Return True when `module` is one of `modules` or inside one."""
@@ -631,7 +674,7 @@ def _pickle_globals(data):
     pushed = []
     memo = {}
 
-    for opcode, arg, _ in pickletools.genops(data):
+    for opcode, arg in _pickle_ops(data):
         name = opcode.name
 
         if name in _PICKLE_EXT_OPS:

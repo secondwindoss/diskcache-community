@@ -350,6 +350,28 @@ def test_scalars_keep_their_type_and_value(directory, scalar):
         assert type(cache['nested']['metrics'][1]) is type(scalar)
 
 
+def test_scalars_of_one_value_keep_their_own_types(directory):
+    """Python caches small ints, so equal scalars must not share a type."""
+    scalars = [
+        np.int8(2),
+        np.int64(2),
+        np.uint8(2),
+        np.float64(2.0),
+        np.float32(2.0),
+        np.bool_(True),
+        np.int64(1),
+        np.str_(''),
+        np.bytes_(b''),
+    ]
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = scalars
+        result = cache['key']
+
+    assert [type(item) for item in result] == [type(item) for item in scalars]
+    assert result == scalars
+
+
 @pytest.mark.parametrize('kind', [np.float64, np.float32, np.float16])
 def test_scalar_nan_and_infinity_are_kept(directory, kind):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
@@ -687,6 +709,22 @@ def test_writing_a_large_array_copies_it_at_most_twice(directory):
     assert peak < array.nbytes * 2.2
 
 
+def test_writing_an_array_in_an_allowed_class_copies_it_at_most_twice(
+    directory,
+):
+    """The write check reads past the array instead of copying it."""
+    array = np.arange(4000000.0)
+
+    with dc.Cache(directory, disk=ArrayDisk.with_types(Result)) as cache:
+        tracemalloc.start()
+        cache['key'] = Result('name', array)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        same(cache['key'].vector, array)
+
+    assert peak < array.nbytes * 2.2
+
+
 def test_reading_a_large_array_takes_no_second_copy(directory):
     array = np.arange(4000000.0)
 
@@ -987,6 +1025,16 @@ FORGED_IDS = {
     'scalar of none': ('scalar', 'float64', None),
     'scalar of text': ('scalar', 'float64', 'not a number'),
     'scalar too large': ('scalar', 'int64', 10**30),
+    'bytes of an int': ('scalar', 'bytes', 5),
+    'str of an int': ('scalar', 'str', 5),
+    'bool of a str': ('scalar', 'bool', 'False'),
+    'bool of an int': ('scalar', 'bool', 1),
+    'int of a bool': ('scalar', 'int64', True),
+    'int of a float': ('scalar', 'int64', 1.0),
+    'float of an int': ('scalar', 'float64', 1),
+    'complex of a float': ('scalar', 'complex128', 1.0),
+    'str of bytes': ('scalar', 'str', b'text'),
+    'bytes of a str': ('scalar', 'bytes', 'text'),
 }
 
 
@@ -1082,6 +1130,54 @@ def test_one_buffer_in_many_ids_decodes_once(directory):
 
     assert len(result) == 1001
     assert all(item is result[0] for item in result)
+
+
+@pytest.mark.parametrize(
+    'name, value',
+    [('str', 'x' * 100000), ('bytes', b'x' * 100000)],
+    ids=['str', 'bytes'],
+)
+def test_one_string_in_many_scalar_ids_decodes_once(directory, name, value):
+    """Scalar strings sharing one memoized value are copied once."""
+    write_row(
+        directory, forge([Pid(('scalar', name, value)) for _ in range(1001)])
+    )
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        tracemalloc.start()
+        result = cache['key']
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+    assert len(result) == 1001
+    assert all(item is result[0] for item in result)
+    assert type(result[0]) is getattr(np, name + '_')
+    assert result[0] == value
+    assert peak < len(value) * 20
+
+
+def test_unshared_scalar_strings_stay_distinct(directory):
+    """A freed string's id may be reused, so the memo holds the string."""
+    # Built by hand, so that no string is memoized by the pickle itself.
+    items = b''
+    for index in range(100):
+        text = ('%04d' % index).encode() * 300
+        items += (
+            b'\x8c\x06scalar'
+            + b'\x8c\x03str'
+            + b'X'
+            + struct.pack('<I', len(text))
+            + text
+            + b'\x87Q'
+        )
+    write_row(directory, b'\x80\x05](' + items + b'e.')
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        result = cache['key']
+
+    assert [str(item)[:4] for item in result] == [
+        '%04d' % index for index in range(100)
+    ]
 
 
 def test_deep_nesting_reads_without_recursing(directory):

@@ -7,8 +7,10 @@ import pickle
 import pickletools
 import shutil
 import sqlite3
+import struct
 import sys
 import tempfile
+import tracemalloc
 
 import pytest
 
@@ -321,6 +323,39 @@ def test_pickle_globals_matches_pickletools(protocol):
 
 def test_pickle_globals_gives_up_on_unknown_operands():
     data = b'\x80\x04\x8c\x04name\x8c\x04attr\x86\x94\x93.'
+    assert _pickle_globals(data) is None
+
+
+def test_pickle_globals_reads_past_large_strings_and_buffers():
+    value = [
+        models.Point(1, 2),
+        'y' * 300,
+        b'x' * 300,
+        'y' * 10**6,
+        b'x' * 10**6,
+        bytearray(b'z' * 10**6),
+        models.Pair(1, 2),
+    ]
+    data = pickle.dumps(value, protocol=5)
+
+    tracemalloc.start()
+    found = _pickle_globals(data)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert (models.__name__, 'Point') in found
+    assert (models.__name__, 'Pair') in found
+    assert peak < 10**5
+
+
+def test_pickle_globals_gives_up_on_a_long_module_name():
+    name = 'a' * 5000
+    data = (
+        b'\x80\x04X'
+        + struct.pack('<I', len(name))
+        + name.encode()
+        + b'\x8c\x04attr\x93.'
+    )
     assert _pickle_globals(data) is None
 
 
