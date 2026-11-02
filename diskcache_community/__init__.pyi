@@ -8,6 +8,7 @@ from diskcache_community.core import EmptyDirWarning as EmptyDirWarning
 from diskcache_community.core import JSONDisk as JSONDisk
 from diskcache_community.core import ReadOnlyError as ReadOnlyError
 from diskcache_community.core import SafeDisk as SafeDisk
+from diskcache_community.core import SafeJSONDisk as SafeJSONDisk
 from diskcache_community.core import Timeout as Timeout
 from diskcache_community.core import UnknownFileWarning as UnknownFileWarning
 from diskcache_community.core import configure as configure
@@ -40,6 +41,7 @@ __all__ = [
     'RLock',
     'ReadOnlyError',
     'SafeDisk',
+    'SafeJSONDisk',
     'Timeout',
     'UNKNOWN',
     'UnknownFileWarning',

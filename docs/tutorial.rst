@@ -1019,6 +1019,43 @@ value pickles a class outside the allowlist raises :exc:`TypeError` that names
 the class. Calling ``with_types`` on the returned class adds to its allowlist,
 and a cache that uses it can be pickled as usual.
 
+.. _tutorial-safejsondisk:
+
+SafeJSONDisk
+............
+
+:class:`JSONDisk <diskcache_community.JSONDisk>` writes only compressed JSON,
+but it inherits the pickle reads of :class:`Disk
+<diskcache_community.Disk>`, so a row crafted to say that it holds a pickle
+still runs code in the process that reads it, and a crafted path can still
+delete a file outside the cache.
+:class:`SafeJSONDisk <diskcache_community.SafeJSONDisk>` reads and writes the
+same files and closes both:
+
+* A pickled key or value raises :exc:`pickle.UnpicklingError` without being
+  parsed, whatever it contains, because this disk never writes one.
+* File paths read from the database are confined to the cache directory, as in
+  :class:`SafeDisk <diskcache_community.SafeDisk>`.
+
+:class:`SafeDisk <diskcache_community.SafeDisk>` cannot take the place of
+:class:`JSONDisk <diskcache_community.JSONDisk>` on an existing cache, because
+it does not decompress and decode what that disk wrote. Switching to
+:class:`SafeJSONDisk <diskcache_community.SafeJSONDisk>` needs no migration,
+and a process that still uses :class:`JSONDisk
+<diskcache_community.JSONDisk>` can share the directory:
+
+.. code-block:: python
+
+    from diskcache_community import Cache, SafeJSONDisk
+
+    cache = Cache('/tmp/mycache', disk=SafeJSONDisk)
+
+Keys and values are limited to what JSON can hold, so there is no allowlist to
+extend and :meth:`SafeDisk.with_types
+<diskcache_community.SafeDisk.with_types>` adds nothing here. Use
+``SafeJSONDisk.with_options(on_error='miss')`` to drop refused entries, as
+described in :ref:`tutorial-unreadable-entries`.
+
 .. _tutorial-default-disk:
 
 Default disk

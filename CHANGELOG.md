@@ -4,6 +4,10 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ## Unreleased
 
+### Security
+
+- `SafeJSONDisk` stores JSON like `JSONDisk`, reads and writes the same files, and never reads a pickle. `JSONDisk` writes only JSON but inherits the pickle reads of `Disk`, so a crafted row still ran code and a crafted path could still delete a file outside the cache. `SafeJSONDisk` refuses pickled keys and values without parsing them and confines paths as `SafeDisk` does (PR #33).
+
 ### Fixes
 
 - `memoize_stampede` works with `SafeDisk`: the key of its early recomputation marker held the internal `ENOVAL` constant, which `SafeDisk` refuses, so a call raised `TypeError` once a cached value neared expiry (PR #32).

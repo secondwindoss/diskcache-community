@@ -74,6 +74,13 @@ def test_cache_jsondisk(golden_root):
     verify.verify_jsondisk(op.join(golden_root, recipe.DIR_JSONDISK))
 
 
+def test_cache_jsondisk_read_with_safe_json_disk(golden_root):
+    verify.verify_jsondisk(
+        op.join(golden_root, recipe.DIR_JSONDISK),
+        disk=verify.diskcache.SafeJSONDisk,
+    )
+
+
 def test_fanout(golden_root):
     verify.verify_fanout(op.join(golden_root, recipe.DIR_FANOUT))
 
