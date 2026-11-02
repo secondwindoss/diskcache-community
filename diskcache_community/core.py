@@ -2615,6 +2615,9 @@ class Cache:
         :raises Timeout: if database timeout occurs
 
         """
+        # Kept in one function: a helper call costs a measurable share of a
+        # cache hit.
+        # pylint: disable=too-many-branches,too-many-statements
         db_key, raw = self._disk.put(key)
         update_column = EVICTION_POLICY[self.eviction_policy]['get']
         statistics = self.statistics
@@ -2624,13 +2627,24 @@ class Cache:
             # the path that does not write.
             update_column = None
             statistics = False
-        select = (
-            'SELECT rowid, expire_time, tag, mode, filename, value, store_time'
-            ' FROM Cache WHERE key = ? AND raw = ?'
-            ' AND (expire_time IS NULL OR expire_time > ?)'
-        )
+        # Select store_time only when asked: each extra column costs a
+        # measurable share of a cache hit.
+        if store_time:
+            select = (
+                'SELECT rowid, expire_time, tag, mode, filename, value,'
+                ' store_time FROM Cache WHERE key = ? AND raw = ?'
+                ' AND (expire_time IS NULL OR expire_time > ?)'
+            )
+        else:
+            select = (
+                'SELECT rowid, expire_time, tag, mode, filename, value'
+                ' FROM Cache WHERE key = ? AND raw = ?'
+                ' AND (expire_time IS NULL OR expire_time > ?)'
+            )
 
-        default = _meta_result(default, expire_time, tag, store_time)
+        meta_wanted = expire_time or tag or store_time
+        if meta_wanted:
+            default = _meta_result(default, expire_time, tag, store_time)
 
         if not statistics and update_column is None:
             # Fast path, no transaction necessary.
@@ -2640,17 +2654,23 @@ class Cache:
             if not rows:
                 return default
 
-            (
+            if store_time:
                 (
-                    rowid,
-                    db_expire_time,
-                    db_tag,
-                    mode,
-                    filename,
-                    db_value,
-                    db_store_time,
-                ),
-            ) = rows
+                    (
+                        rowid,
+                        db_expire_time,
+                        db_tag,
+                        mode,
+                        filename,
+                        db_value,
+                        db_store_time,
+                    ),
+                ) = rows
+            else:
+                (
+                    (rowid, db_expire_time, db_tag, mode, filename, db_value),
+                ) = rows
+                db_store_time = None
 
             try:
                 value = self._disk.fetch(mode, filename, db_value, read)
@@ -2679,17 +2699,30 @@ class Cache:
                         sql(cache_miss)
                     return default
 
-                (
+                if store_time:
                     (
-                        rowid,
-                        db_expire_time,
-                        db_tag,
-                        mode,
-                        filename,
-                        db_value,
-                        db_store_time,
-                    ),
-                ) = rows
+                        (
+                            rowid,
+                            db_expire_time,
+                            db_tag,
+                            mode,
+                            filename,
+                            db_value,
+                            db_store_time,
+                        ),
+                    ) = rows
+                else:
+                    (
+                        (
+                            rowid,
+                            db_expire_time,
+                            db_tag,
+                            mode,
+                            filename,
+                            db_value,
+                        ),
+                    ) = rows
+                    db_store_time = None
 
                 try:
                     value = self._disk.fetch(mode, filename, db_value, read)
@@ -2717,6 +2750,8 @@ class Cache:
                 if update_column is not None:
                     sql(update % update_column.format(now=now), (rowid,))
 
+        if not meta_wanted:
+            return value
         meta = (db_expire_time, db_tag, db_store_time)
         return _meta_result(value, expire_time, tag, store_time, meta)
 
