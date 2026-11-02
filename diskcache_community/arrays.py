@@ -124,11 +124,13 @@ class _ArrayPickler(pickle.Pickler):
                     'SafeArrayDisk cannot store a subclass of ndarray: %s.%s'
                     % (type(obj).__module__, type(obj).__qualname__)
                 )
-            pid = self._arrays.get(id(obj))
-            if pid is None:
-                pid = ('npy', _pack_array(numpy, obj))
-                self._arrays[id(obj)] = pid
-            return pid
+            # Holding `obj` keeps its id from being reused: pickle's own memo
+            # skips persistent IDs, and a value may hand it temporary arrays.
+            entry = self._arrays.get(id(obj))
+            if entry is None:
+                entry = (obj, ('npy', _pack_array(numpy, obj)))
+                self._arrays[id(obj)] = entry
+            return entry[1]
         if isinstance(obj, numpy.generic):
             return ('item', _item(numpy, obj))
         return None
@@ -195,6 +197,12 @@ class SafeArrayDisk(SafeDisk):
             self.safe_types,
             self.safe_modules,
         )
+
+    def get(self, key, raw):
+        if raw:
+            return super().get(key, raw)
+        # Keys never hold numpy, so a key row gets no persistent IDs.
+        return super()._unpickler(key).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck

@@ -47,6 +47,17 @@ class Outside:
     """A class outside the allowlist."""
 
 
+class Temporaries:
+    """Object that hands pickle arrays nothing else refers to."""
+
+    def __init__(self, count):
+        self.count = count
+
+    def __reduce__(self):
+        arrays = (np.arange(n, n + 2.0) for n in range(self.count))
+        return (list, (), None, arrays)
+
+
 class State:
     """A plain class holding arrays, as a library's state object does."""
 
@@ -232,6 +243,16 @@ def test_shared_arrays_stay_shared_and_are_stored_once(directory):
 
     assert all(item is result[0] for item in result)
     assert extra < 1000
+
+
+def test_temporary_arrays_keep_their_own_data(directory):
+    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+        cache['key'] = Temporaries(50)
+        result = cache['key']
+
+    assert [item.tolist() for item in result] == [
+        [n, n + 1.0] for n in range(50)
+    ]
 
 
 def test_cycles_work(directory):
@@ -830,6 +851,37 @@ def test_forged_persistent_id_is_refused(directory, pid):
     with dc.Cache(directory, disk=MissDisk) as cache:
         assert cache.get('key', 'default') == 'default'
         assert len(cache) == 0
+
+
+@pytest.mark.parametrize(
+    'pid',
+    [('npy', npy_bytes(np.arange(2.0))), ('item', 1)],
+    ids=['array', 'item'],
+)
+def test_persistent_id_in_a_key_row_is_refused(directory, pid):
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        cache[('key',)] = 'value'
+    con = sqlite3.connect(op.join(directory, 'cache.db'))
+    con.execute(
+        'UPDATE Cache SET key = ? WHERE raw = 0',
+        (sqlite3.Binary(persid(pid)),),
+    )
+    con.commit()
+    con.close()
+
+    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            list(cache)
+
+    with dc.Cache(directory, disk=MissDisk) as cache:
+        assert list(cache) == []
+
+
+def test_keys_still_read_back(directory):
+    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+        cache[('a', 1)] = np.arange(2.0)
+        cache['text'] = np.arange(2.0)
+        assert list(cache) == [('a', 1), 'text']
 
 
 def test_forged_array_nested_in_a_value_is_a_miss(directory):
