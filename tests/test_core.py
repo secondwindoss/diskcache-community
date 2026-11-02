@@ -1991,12 +1991,18 @@ def test_before_fork_closes_idle_connection(cache):
     assert cache.get('a') == 1  # Reconnects on use.
 
 
-def test_pid_change_discards_connections(cache):
-    # The fallback for a fork the at-fork handler did not see.
+@pytest.mark.parametrize(
+    'use',
+    [lambda cache: cache.get('a') == 1, lambda cache: cache.set('b', 2)],
+    ids=['get', 'set'],
+)
+def test_pid_change_discards_connections(cache, use):
+    # The fallback for a fork the at-fork handler did not see, through the
+    # cursor that get reuses and through the connection that set uses.
     cache.set('a', 1)
     con = cache._local.con
     cache._cons.pid = -1
-    assert cache.get('a') == 1
+    assert use(cache)
     assert cache._local.con is not con
     assert cache._cons.pid == os.getpid()
     assert con in dc.core._INHERITED_CONNECTIONS
@@ -2248,3 +2254,43 @@ def test_memoize_nan_is_kept_on_a_hit():
         assert math.isnan(compute())
         assert math.isnan(compute())
         shutil.rmtree(cache.directory, ignore_errors=True)
+
+
+def test_get_reuses_cursor_per_thread(cache):
+    cache.set('a', 1)
+    assert cache.get('a') == 1
+    cur = cache._local.cur
+    assert cache.get('a') == 1
+    assert cache._local.cur is cur
+
+    other = []
+    thread = threading.Thread(
+        target=lambda: other.append((cache.get('a'), cache._local.cur))
+    )
+    thread.start()
+    thread.join()
+    assert other[0][0] == 1
+    assert other[0][1] is not cur
+
+
+def test_get_after_close_uses_new_cursor(cache):
+    cache.set('a', 1)
+    cur = cache._local.cur
+    cache.close()
+    assert getattr(cache._local, 'cur', None) is None
+    assert cache.get('a') == 1
+    assert cache._local.cur is not cur
+
+
+def test_get_reads_only_value_columns_without_metadata(cache):
+    cache.set('a', 1, tag='t')
+    statements = []
+    cache._con.set_trace_callback(statements.append)
+    try:
+        assert cache.get('a') == 1
+        assert cache.get('a', tag=True) == (1, 't')
+    finally:
+        cache._con.set_trace_callback(None)
+    selects = [text for text in statements if text.startswith('SELECT')]
+    assert selects[0].startswith('SELECT mode, filename, value FROM')
+    assert selects[1].startswith('SELECT rowid, expire_time, tag,')

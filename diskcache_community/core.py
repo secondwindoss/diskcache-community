@@ -1943,6 +1943,7 @@ class Cache:
         stale = self._cons.add(threading.get_ident(), sentinel, con)
         self._local.con = con
         self._local.sentinel = sentinel
+        self._local.cur = con.cursor()
 
         for old in stale:
             old.close()
@@ -1980,6 +1981,22 @@ class Cache:
     @property
     def _sql(self):
         return self._con.execute
+
+    @property
+    def _cur(self):
+        # The calling thread's cursor, reused to save creating one per
+        # statement. Only a statement whose result is fetched right after it
+        # runs may use it, since the next statement on it discards the rest.
+        if self._cons.pid != os.getpid():
+            self._discard_connections()
+
+        cur = getattr(self._local, 'cur', None)
+
+        if cur is None:
+            self._connect()
+            cur = self._local.cur
+
+        return cur
 
     @property
     def _sql_retry(self):
@@ -2630,6 +2647,7 @@ class Cache:
         # Kept in one function: a helper call costs a measurable share of a
         # cache hit.
         # pylint: disable=too-many-branches,too-many-statements
+        # pylint: disable=too-many-locals,too-many-return-statements
         db_key, raw = self._disk.put(key)
         update_column = EVICTION_POLICY[self.eviction_policy]['get']
         statistics = self.statistics
@@ -2646,7 +2664,7 @@ class Cache:
             # Fastest path: nothing to record and no metadata to return, so
             # read only the columns that hold the value. The key and raw
             # columns are unique, so there is at most one row.
-            row = self._sql(
+            row = self._cur.execute(
                 'SELECT mode, filename, value FROM Cache'
                 ' WHERE key = ? AND raw = ?'
                 ' AND (expire_time IS NULL OR expire_time > ?)',
@@ -3991,7 +4009,7 @@ class Cache:
         if con is not None and con not in cons:
             cons.append(con)
 
-        for name in ('con', 'sentinel'):
+        for name in ('con', 'sentinel', 'cur'):
             try:
                 delattr(local, name)
             except AttributeError:
