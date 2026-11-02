@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.2 (2026-11-02)
+
+Adds `SafeJSONDisk` and `SafeDisk.with_numpy()`, keeps float NaN values, and makes `get` and `set` faster. The `cache.db` schema and the file layout are unchanged.
 
 ### Security
 
