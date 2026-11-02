@@ -8,7 +8,8 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 - `SafeJSONDisk` stores JSON like `JSONDisk`, reads and writes the same files, and never reads a pickle. `JSONDisk` writes only JSON but inherits the pickle reads of `Disk`, so a crafted row still ran code and a crafted path could still delete a file outside the cache. `SafeJSONDisk` refuses pickled keys and values without parsing them and confines paths as `SafeDisk` does (PR #33).
 
-- `SafeArrayDisk` is a `SafeDisk` that stores numpy arrays in the `.npy` format instead of pickling them, on their own or inside a `dict`, `list` or `tuple`, and stores numpy scalars as Python values. Array headers are checked against the data before reading, so a forged shape is refused rather than raising `MemoryError`. Object arrays and `ndarray` subclasses raise `TypeError` at write time. numpy stays optional and refused by `SafeDisk` (PR #34).
+- `SafeArrayDisk` is a `SafeDisk` that stores numpy arrays in the `.npy` format instead of pickling them, through pickle's persistent IDs, anywhere in a value including inside classes allowed with `with_types`. numpy scalars read back as Python values. Headers are checked against the data, so forged arrays are refused rather than raising `MemoryError`, and every forged entry raises `UnpicklingError` or reads as a miss with `on_error='miss'`. Object arrays, `ndarray` subclasses and arrays the reader would refuse raise `TypeError` at write time. Entries holding numpy data can't be read by other disks or by 5.6.3, which raise `UnpicklingError`. numpy stays optional, and `SafeDisk` still refuses it (PR #34).
+- `DISKCACHE_SAFE_TYPES` and `DISKCACHE_SAFE_MODULES` now apply when `DISKCACHE_DISK` names a `SafeDisk` subclass, not only with `safe` (PR #34).
 
 ### Fixes
 

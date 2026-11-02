@@ -1,5 +1,6 @@
 """Test diskcache_community.configure and default_disk."""
 
+import decimal
 import os.path as op
 import pickle
 import shutil
@@ -263,3 +264,22 @@ def test_default_disk_not_persisted(directory):
     with dc.Cache(directory) as cache:
         assert type(cache.disk) is dc.Disk
         assert cache['key'] == 'value'
+
+
+def test_safe_lists_apply_to_a_safedisk_subclass(monkeypatch):
+    monkeypatch.setenv(core.ENV_DISK, 'diskcache_community:SafeJSONDisk')
+    monkeypatch.setenv(core.ENV_SAFE_TYPES, 'decimal:Context')
+    monkeypatch.setenv(core.ENV_SAFE_MODULES, 'myapp.schemas')
+    core._disk_from_environment.cache_clear()
+    disk = dc.default_disk()
+    assert issubclass(disk, dc.SafeJSONDisk)
+    assert decimal.Context in disk.safe_types
+    assert disk.safe_modules == ('myapp.schemas',)
+
+
+def test_safe_lists_refuse_a_disk_outside_safedisk(monkeypatch):
+    monkeypatch.setenv(core.ENV_DISK, 'diskcache_community:JSONDisk')
+    monkeypatch.setenv(core.ENV_SAFE_MODULES, 'myapp.schemas')
+    core._disk_from_environment.cache_clear()
+    with pytest.raises(ValueError, match='SafeDisk subclass'):
+        dc.default_disk()

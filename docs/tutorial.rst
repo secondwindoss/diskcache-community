@@ -1063,7 +1063,8 @@ SafeArrayDisk
 
 :class:`SafeDisk <diskcache_community.SafeDisk>` refuses numpy, because
 unpickling an array is not memory-safe. :class:`SafeArrayDisk
-<diskcache_community.SafeArrayDisk>` stores arrays without pickling them:
+<diskcache_community.SafeArrayDisk>` stores arrays without pickling them, by
+writing them through pickle's persistent IDs in numpy's ``.npy`` format:
 
 .. code-block:: python
 
@@ -1075,26 +1076,38 @@ unpickling an array is not memory-safe. :class:`SafeArrayDisk
     cache['embedding'] = numpy.arange(3.0)
     cache['result'] = {'scores': numpy.zeros(2), 'best': numpy.float64(1.5)}
 
-* An array on its own or inside a ``dict``, ``list`` or ``tuple`` is saved in
-  numpy's ``.npy`` format with ``allow_pickle=False``. Its header is checked
-  against the data before it is read back, also with ``allow_pickle=False``.
-* numpy integers, floats, complex numbers, booleans and strings are stored as
+* An array anywhere in a value is saved with ``allow_pickle=False``, including
+  inside classes allowed with :meth:`SafeDisk.with_types
+  <diskcache_community.SafeDisk.with_types>`. Its header is checked against the
+  data before it is read back, also with ``allow_pickle=False``. An array that
+  appears twice in a value is stored once and is one array when read back.
+* numpy integers, floats, complex numbers, booleans and strings read back as
   the equivalent Python value, so ``numpy.float64(1.5)`` reads back as ``1.5``.
 * Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
-  ``numpy.matrix``, arrays inside any other type, and ``datetime64`` and
-  ``timedelta64`` scalars raise :exc:`TypeError` when written.
+  ``numpy.matrix``, ``datetime64`` and ``timedelta64`` scalars, and arrays that
+  the reader would refuse, such as a dtype with no width, raise
+  :exc:`TypeError` when written.
+
+Keys behave as in :class:`SafeDisk <diskcache_community.SafeDisk>`, so numpy
+values in a key raise :exc:`TypeError`, including the arguments of a function
+decorated with :meth:`memoize <diskcache_community.Cache.memoize>`. A memoized
+function that returns a numpy scalar returns it unchanged on a miss and as a
+Python value on a hit, so convert it in the function if a caller relies on its
+type.
 
 Everything else behaves as in :class:`SafeDisk
-<diskcache_community.SafeDisk>`, and :meth:`SafeDisk.with_types
-<diskcache_community.SafeDisk.with_types>` and
-``with_options(on_error='miss')`` work the same way. An entry whose array data
-has been tampered with raises an error when read, or reads as missing with
+<diskcache_community.SafeDisk>`, and ``with_options(on_error='miss')`` works
+the same way. An entry whose array data has been tampered with raises
+:exc:`pickle.UnpicklingError` when read, or reads as missing with
 ``on_error='miss'``.
 
-The choice of disk is not stored in the cache directory, so select this disk in
-every process that shares a directory. An encoded array is an ordinary pickled
-``dict``: a process on another disk, or on diskcache 5.6.3, opens the directory
-and reads that ``dict`` instead of the array. Arrays that the default
+A value with no numpy in it is an ordinary pickle. An entry holding numpy data
+is not readable by any other disk, or by diskcache 5.6.3: they open the
+directory and raise :exc:`pickle.UnpicklingError` for that entry, and a disk
+with ``on_error='miss'`` deletes it. The choice of disk is not stored in the
+cache directory, so select this disk in every process that shares a directory.
+A process that cannot import numpy raises :exc:`ImportError` for an entry with
+an array and keeps it, even with ``on_error='miss'``. Arrays that the default
 :class:`Disk <diskcache_community.Disk>` pickled earlier are refused like any
 other pickle outside the allowlist, so compute them again.
 
@@ -1123,8 +1136,10 @@ or in the environment, without changing any code:
     DISKCACHE_DISK=safe python app.py
 
 ``DISKCACHE_DISK`` takes ``safe``, ``default``, or the import path of a disk
-class such as ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES``
-and ``DISKCACHE_SAFE_MODULES`` list classes and module names, comma-separated,
+class such as ``myapp.cache:AppDisk``. With ``safe`` or a subclass of
+:class:`SafeDisk <diskcache_community.SafeDisk>`, such as
+``diskcache_community:SafeArrayDisk``, ``DISKCACHE_SAFE_TYPES`` and
+``DISKCACHE_SAFE_MODULES`` list classes and module names, comma-separated,
 passed to :meth:`SafeDisk.with_types
 <diskcache_community.SafeDisk.with_types>`. A disk passed explicitly always
 wins, then :func:`configure <diskcache_community.configure>`, then the

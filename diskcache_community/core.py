@@ -347,13 +347,16 @@ class Disk:
             return size, MODE_BINARY, filename, None
         else:
             result = pickle.dumps(value, protocol=self.pickle_protocol)
+            return self._store_pickle(result, value, key)
 
-            if len(result) < min_file_size:
-                return 0, MODE_PICKLE, None, sqlite3.Binary(result)
-            else:
-                filename, full_path = self.filename(key, value)
-                self._write(full_path, result, 'xb')
-                return len(result), MODE_PICKLE, filename, None
+    def _store_pickle(self, result, value, key):
+        """Return Cache table fields for `result`, the pickle of `value`."""
+        if len(result) < self.min_file_size:
+            return 0, MODE_PICKLE, None, sqlite3.Binary(result)
+        else:
+            filename, full_path = self.filename(key, value)
+            self._write(full_path, result, 'xb')
+            return len(result), MODE_PICKLE, filename, None
 
     def _write(self, full_path, iterator_or_bytes, mode, encoding=None):
         full_dir, _ = op.split(full_path)
@@ -893,7 +896,12 @@ class SafeDisk(Disk):
         else:
             return
 
-        data = pickle.dumps(obj, protocol=self.pickle_protocol)
+        self._check_pickle(
+            pickle.dumps(obj, protocol=self.pickle_protocol), obj, what
+        )
+
+    def _check_pickle(self, data, obj, what):
+        """Raise TypeError unless the reader would accept the pickle `data`."""
         names = _pickle_globals(data)
 
         if names is None:
@@ -1118,10 +1126,10 @@ def default_disk():
 
     ``DISKCACHE_DISK`` is empty or ``default`` for :class:`Disk`, ``safe``
     for :class:`SafeDisk`, or the import path of a Disk subclass, such as
-    ``myapp.cache:AppDisk``. With ``safe``, ``DISKCACHE_SAFE_TYPES`` lists
-    classes to allow by import path and ``DISKCACHE_SAFE_MODULES`` lists
-    module names whose classes to allow, both comma-separated, as
-    :meth:`SafeDisk.with_types` takes them.
+    ``myapp.cache:AppDisk``. With ``safe`` or a SafeDisk subclass,
+    ``DISKCACHE_SAFE_TYPES`` lists classes to allow by import path and
+    ``DISKCACHE_SAFE_MODULES`` lists module names whose classes to allow,
+    both comma-separated, as :meth:`SafeDisk.with_types` takes them.
 
     :return: Disk type or subclass
     :raises ValueError: if an environment variable is invalid
@@ -1172,27 +1180,26 @@ def _disk_from_environment(name, types, modules):
     extras = types.strip() or modules.strip()
 
     if keyword == 'safe':
-        classes = [
-            _import_object(entry, ENV_SAFE_TYPES)
-            for entry in _split_list(types)
-        ]
-        prefixes = _split_list(modules)
-        if not (classes or prefixes):
-            return SafeDisk
-        return SafeDisk.with_types(*classes, modules=prefixes)
+        disk = SafeDisk
+    elif keyword in ('', 'default'):
+        disk = Disk
+    else:
+        disk = _import_object(name, ENV_DISK)
+        _check_disk_type(disk, ENV_DISK)
 
-    if extras:
+    if not extras:
+        return disk
+
+    if not issubclass(disk, SafeDisk):
         raise ValueError(
-            '%s and %s apply only with %s=safe'
+            '%s and %s apply only with %s=safe or a SafeDisk subclass'
             % (ENV_SAFE_TYPES, ENV_SAFE_MODULES, ENV_DISK)
         )
 
-    if keyword in ('', 'default'):
-        return Disk
-
-    disk = _import_object(name, ENV_DISK)
-    _check_disk_type(disk, ENV_DISK)
-    return disk
+    classes = [
+        _import_object(entry, ENV_SAFE_TYPES) for entry in _split_list(types)
+    ]
+    return disk.with_types(*classes, modules=_split_list(modules))
 
 
 def _meta_result(value, expire_time, tag, store_time, meta=(None, None, None)):
@@ -1501,9 +1508,19 @@ _CACHES: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 # Caches that have logged an unreadable entry as a warning already.
 _UNREADABLE_LOGGED: 'weakref.WeakSet[Cache]' = weakref.WeakSet()
 
+
+class _ReaderMissing(ImportError):
+    """A disk needs a package that is not installed to read an entry.
+
+    Unlike a pickle that names a class that no longer exists, which raises an
+    ordinary ImportError, this says nothing about the entry itself.
+
+    """
+
+
 # Errors that on_error='miss' never treats as an unreadable entry: a missing
 # value file is already a miss, and the others say nothing about the entry.
-_NOT_UNREADABLE = (OSError, MemoryError, RecursionError)
+_NOT_UNREADABLE = (OSError, MemoryError, RecursionError, _ReaderMissing)
 
 # Connections inherited from a parent process, kept open on purpose.
 _INHERITED_CONNECTIONS: 'list[sqlite3.Connection]' = []

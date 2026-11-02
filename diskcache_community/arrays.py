@@ -5,105 +5,158 @@ import math
 import pickle
 import sys
 
-from .core import UNKNOWN, SafeDisk
+from .core import (
+    SAFE_PICKLE_NAMES,
+    UNKNOWN,
+    Disk,
+    SafeDisk,
+    SafeUnpickler,
+    _ReaderMissing,
+)
 
-_NPY_KEY = '__diskcache_community_npy__'
-
-
-def _contains(value, match):
-    """Return True if `match` holds for `value` or anything nested in it."""
-    seen = set()
-    stack = [value]
-
-    while stack:
-        item = stack.pop()
-        if match(item):
-            return True
-        type_item = type(item)
-        if type_item in (dict, list, tuple):
-            if id(item) in seen:
-                continue
-            seen.add(id(item))
-            if type_item is dict:
-                stack.extend(item.keys())
-                stack.extend(item.values())
-            else:
-                stack.extend(item)
-
-    return False
+# Pickle protocol 0 takes only strings as persistent IDs, and protocols below
+# 3 have no opcode for bytes.
+_MIN_PROTOCOL = 3
 
 
-def _rebuild(value, convert):
-    """Return `value` with `convert` applied through dicts, lists and tuples.
+def _check_header(numpy, data):
+    """Raise UnpicklingError unless the ``.npy`` bytes `data` are consistent.
 
-    `convert` returns its argument unchanged for anything it leaves alone.
+    The sizes in the header are checked against the data because a forged
+    shape would otherwise raise MemoryError, which ``on_error='miss'`` does
+    not treat as an unreadable entry. For the same reason, anything that goes
+    wrong while parsing the header, including a MemoryError from the Python
+    parser on a crafted one, is reported as UnpicklingError.
 
     """
-    converted = convert(value)
-    if converted is not value:
-        return converted
-    type_value = type(value)
-    if type_value is dict:
-        return {
-            _rebuild(key, convert): _rebuild(item, convert)
-            for key, item in value.items()
-        }
-    if type_value is list:
-        return [_rebuild(item, convert) for item in value]
-    if type_value is tuple:
-        return tuple(_rebuild(item, convert) for item in value)
-    return value
+    # pylint: disable=broad-except,no-member
+    try:
+        reader = io.BytesIO(data)
+        version = numpy.lib.format.read_magic(reader)
+        if version == (1, 0):
+            header = numpy.lib.format.read_array_header_1_0(reader)
+        elif version == (2, 0):
+            header = numpy.lib.format.read_array_header_2_0(reader)
+        else:
+            raise ValueError('unsupported .npy version %r' % (version,))
+    except Exception as error:
+        raise pickle.UnpicklingError(
+            'SafeArrayDisk refuses the array header'
+        ) from error
 
+    shape, _, dtype = header
+    count = math.prod(shape)
 
-def _encoded_array(item):
-    # pylint: disable=unidiomatic-typecheck
-    return type(item) is dict and len(item) == 1 and _NPY_KEY in item
+    # A zero-width dtype would let any shape match any amount of data.
+    if dtype.itemsize * count != len(data) - reader.tell() or (
+        count and not dtype.itemsize
+    ):
+        raise pickle.UnpicklingError('SafeArrayDisk refuses the array header')
 
 
 def _pack_array(numpy, array):
-    """Return `array` as a dict that holds its ``.npy`` bytes."""
-    if array.dtype.hasobject:
-        raise TypeError(
-            'SafeArrayDisk cannot store an array of dtype %s' % (array.dtype,)
-        )
+    """Return the ``.npy`` bytes of `array`, which a reader will accept."""
     buffer = io.BytesIO()
-    numpy.save(buffer, array, allow_pickle=False)
-    data = buffer.getvalue()
-    if data[6:8] not in (b'\x01\x00', b'\x02\x00'):
+    try:
+        numpy.save(buffer, array, allow_pickle=False)
+        data = buffer.getvalue()
+        _check_header(numpy, data)
+    except (ValueError, pickle.UnpicklingError) as error:
         raise TypeError(
             'SafeArrayDisk cannot store an array of dtype %s' % (array.dtype,)
-        )
-    return {_NPY_KEY: data}
+        ) from error
+    return data
 
 
 def _unpack_array(data):
-    """Return the array in ``.npy`` bytes that may have been tampered with.
+    """Return the array in ``.npy`` bytes that may have been tampered with."""
+    # pylint: disable=broad-except,import-error,import-outside-toplevel
+    # pylint: disable=no-member
+    try:
+        import numpy
+    except ImportError as error:
+        raise _ReaderMissing(
+            'SafeArrayDisk needs numpy to read an array'
+        ) from error
 
-    The sizes in the header are checked against the data first, because a
-    forged shape would otherwise raise :exc:`MemoryError`, which
-    ``on_error='miss'`` does not treat as an unreadable entry.
+    _check_header(numpy, data)
 
-    """
-    # pylint: disable=import-error,import-outside-toplevel,no-member
-    import numpy
+    try:
+        return numpy.lib.format.read_array(
+            io.BytesIO(data), allow_pickle=False
+        )
+    except MemoryError:
+        raise  # The header matched the data, so this is a real shortage.
+    except Exception as error:
+        raise pickle.UnpicklingError(
+            'SafeArrayDisk refuses the array data'
+        ) from error
 
-    reader = io.BytesIO(data)
-    version = numpy.lib.format.read_magic(reader)
-    if version == (1, 0):
-        header = numpy.lib.format.read_array_header_1_0(reader)
-    elif version == (2, 0):
-        header = numpy.lib.format.read_array_header_2_0(reader)
-    else:
-        raise pickle.UnpicklingError('SafeArrayDisk found no array data')
 
-    shape, _, dtype = header
-    size = dtype.itemsize * math.prod(shape)
+def _item(numpy, scalar):
+    """Return the Python value of numpy `scalar`, or raise TypeError."""
+    if isinstance(
+        scalar, (numpy.bool_, numpy.number, numpy.str_, numpy.bytes_)
+    ) and not isinstance(scalar, numpy.timedelta64):
+        value = scalar.item()
+        if not isinstance(value, numpy.generic):
+            return value
+    raise TypeError(
+        'SafeArrayDisk cannot store a scalar of type numpy.%s'
+        % (type(scalar).__name__,)
+    )
 
-    if size != len(data) - reader.tell():
-        raise pickle.UnpicklingError('SafeArrayDisk refuses the array header')
 
-    reader.seek(0)
-    return numpy.lib.format.read_array(reader, allow_pickle=False)
+class _ArrayPickler(pickle.Pickler):
+    """Pickler that writes arrays and numpy scalars as persistent IDs."""
+
+    def __init__(self, file, protocol, numpy):
+        super().__init__(file, protocol=protocol)
+        self._numpy = numpy
+        self._arrays = {}
+
+    def persistent_id(self, obj):
+        # pylint: disable=unidiomatic-typecheck
+        numpy = self._numpy
+        if isinstance(obj, numpy.ndarray):
+            if type(obj) is not numpy.ndarray:
+                raise TypeError(
+                    'SafeArrayDisk cannot store a subclass of ndarray: %s.%s'
+                    % (type(obj).__module__, type(obj).__qualname__)
+                )
+            pid = self._arrays.get(id(obj))
+            if pid is None:
+                pid = ('npy', _pack_array(numpy, obj))
+                self._arrays[id(obj)] = pid
+            return pid
+        if isinstance(obj, numpy.generic):
+            return ('item', _item(numpy, obj))
+        return None
+
+
+class _ArrayUnpickler(SafeUnpickler):
+    """Unpickler that reads back what _ArrayPickler wrote."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._arrays = {}
+
+    def persistent_load(self, pid):
+        # pylint: disable=unidiomatic-typecheck
+        if type(pid) is tuple and len(pid) == 2:
+            kind, payload = pid
+            if kind == 'item':
+                return payload
+            if kind == 'npy':
+                # Decoding each bytes object once keeps what a row can decode
+                # to within its own size, and arrays that were shared shared.
+                # Holding `payload` keeps its id from being reused.
+                entry = self._arrays.get(id(payload))
+                if entry is None:
+                    entry = (payload, _unpack_array(payload))
+                    self._arrays[id(payload)] = entry
+                return entry[1]
+        raise pickle.UnpicklingError('SafeArrayDisk refuses a persistent ID')
 
 
 class SafeArrayDisk(SafeDisk):
@@ -111,73 +164,65 @@ class SafeArrayDisk(SafeDisk):
 
     :class:`SafeDisk` refuses numpy, because unpickling an array is not
     memory-safe (see ``UNSAFE_MODULES``). :class:`SafeArrayDisk` keeps those
-    pickles out of the cache and stores arrays in numpy's own format:
+    pickles out of the cache by writing arrays through pickle's persistent IDs
+    in numpy's own format:
 
-    * An array on its own or inside a ``dict``, ``list`` or ``tuple`` is saved
-      with ``allow_pickle=False``, and its header is checked before it is
-      read back with ``allow_pickle=False``.
-    * numpy integers, floats, complex numbers, booleans and strings are stored
-      as the equivalent Python value, so they read back as that value.
+    * An array anywhere in a value is saved with ``allow_pickle=False``, and
+      its header is checked before it is read back with
+      ``allow_pickle=False``. That includes the containers :class:`SafeDisk`
+      accepts and the classes allowed with :meth:`SafeDisk.with_types`.
+    * numpy integers, floats, complex numbers, booleans and strings read back
+      as the equivalent Python value.
     * Arrays of objects, subclasses of ``ndarray`` such as masked arrays, and
-      arrays inside any other type raise :exc:`TypeError` when written.
+      other numpy scalars raise :exc:`TypeError` when written.
 
-    Everything else behaves as in :class:`SafeDisk`, including
-    :meth:`SafeDisk.with_types`. numpy stays optional: it is imported only to
-    read an array back. An encoded array is an ordinary pickled ``dict``, so
-    a process that uses another disk, or diskcache 5.6.3, reads that ``dict``
-    instead of the array, and every process that shares a directory should
-    select this disk.
+    Keys and everything else behave as in :class:`SafeDisk`. numpy stays
+    optional: it is used only for a value that needs it, and a process without
+    it raises :exc:`ImportError` for an entry with an array and keeps the
+    entry, even with ``on_error='miss'``.
+
+    A value with no numpy in it is an ordinary pickle. An entry holding numpy
+    data cannot be read by any other disk, or by diskcache 5.6.3: they raise
+    :exc:`pickle.UnpicklingError` for it, and a disk with ``on_error='miss'``
+    deletes it. Every process that shares a directory should select this disk.
 
     """
 
+    def _unpickler(self, data):
+        return _ArrayUnpickler(
+            io.BytesIO(data),
+            SAFE_PICKLE_NAMES,
+            self.safe_types,
+            self.safe_modules,
+        )
+
     def store(self, value, read, key=UNKNOWN):
+        # pylint: disable=unidiomatic-typecheck
         numpy = sys.modules.get('numpy')
-        kinds = (numpy.ndarray, numpy.generic) if numpy else ()
 
-        def needs_encoding(item):
-            # pylint: disable=unidiomatic-typecheck
-            if type(item) is dict and _NPY_KEY in item:
-                raise TypeError(
-                    'SafeArrayDisk cannot store a dict with the key %r'
-                    % (_NPY_KEY,)
-                )
-            return isinstance(item, kinds)
-
-        def encode(item):
-            # pylint: disable=unidiomatic-typecheck
-            if type(item) is numpy.ndarray:
-                return _pack_array(numpy, item)
-            if isinstance(
-                item,
-                (numpy.bool_, numpy.number, numpy.str_, numpy.bytes_),
-            ) and not isinstance(item, numpy.timedelta64):
-                return item.item()
-            return item
-
-        if _contains(value, needs_encoding):
-            try:
-                value = _rebuild(value, encode)
-            except RecursionError:
-                raise TypeError(
-                    'SafeArrayDisk cannot store a nested value this deep'
-                ) from None
-
-        return super().store(value, read, key=key)
-
-    def fetch(self, mode, filename, value, read):
-        result = super().fetch(mode, filename, value, read)
-
-        if not _contains(result, _encoded_array):
-            return result
-
-        def decode(item):
-            if _encoded_array(item):
-                return _unpack_array(item[_NPY_KEY])
-            return item
+        if numpy is None or read or type(value) in (bytes, str, int, float):
+            return super().store(value, read, key=key)
 
         try:
-            return _rebuild(result, decode)
-        except RecursionError:
-            raise pickle.UnpicklingError(
-                'SafeArrayDisk refuses a value nested this deep'
-            ) from None
+            self._check(value, 'value')
+        except TypeError:
+            pass
+        else:
+            return Disk.store(self, value, read, key=key)
+
+        if isinstance(value, numpy.generic):
+            return super().store(_item(numpy, value), read, key=key)
+
+        buffer = io.BytesIO()
+        protocol = max(self.pickle_protocol, _MIN_PROTOCOL)
+
+        try:
+            _ArrayPickler(buffer, protocol, numpy).dump(value)
+        except (pickle.PicklingError, AttributeError) as error:
+            raise TypeError(
+                'SafeArrayDisk cannot store value: %s' % (error,)
+            ) from error
+
+        data = buffer.getvalue()
+        self._check_pickle(data, value, 'value')
+        return self._store_pickle(data, value, key)
