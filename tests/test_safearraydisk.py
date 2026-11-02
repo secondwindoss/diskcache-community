@@ -302,6 +302,18 @@ def test_a_top_level_integer_scalar_is_a_plain_row(directory):
         assert cache.incr('key') == 3
 
 
+@pytest.mark.parametrize('kind', [np.float64, np.float32, np.float16])
+def test_nan_scalar_is_not_lost(directory, kind):
+    """A raw float NaN would come back as None, because SQLite stores NULL."""
+    with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
+        cache['key'] = kind('nan')
+        cache['inf'] = kind('inf')
+        result = cache['key']
+        assert type(result) is float
+        assert result != result
+        assert cache['inf'] == float('inf')
+
+
 def test_scalar_dict_keys_become_python_values(directory):
     with dc.Cache(directory, disk=dc.SafeArrayDisk) as cache:
         cache['key'] = {np.int64(1): 'one'}

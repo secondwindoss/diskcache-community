@@ -211,7 +211,10 @@ class SafeArrayDisk(SafeDisk):
             return Disk.store(self, value, read, key=key)
 
         if isinstance(value, numpy.generic):
-            return super().store(_item(numpy, value), read, key=key)
+            item = _item(numpy, value)
+            # SQLite stores a raw NaN as NULL, so NaN stays in a pickle below.
+            if item == item:  # pylint: disable=comparison-with-itself
+                return super().store(item, read, key=key)
 
         buffer = io.BytesIO()
         protocol = max(self.pickle_protocol, _MIN_PROTOCOL)

@@ -1169,7 +1169,9 @@ suits a cache whose entries can always be computed again:
 ``pop``, ``pull``, ``peek`` and ``peekitem`` move on to the next item, and
 iteration, including the items and values of an :class:`Index
 <diskcache_community.Index>`, skips entries that cannot be read. ``len`` and
-``in`` still count an unreadable entry until a read deletes it. The first
+``in`` still count an unreadable entry until a read deletes it, so code like
+``if key in cache: return cache[key]`` can raise :exc:`KeyError` for such an
+entry; use ``cache.get(key, default)`` instead. The first
 unreadable entry of each cache is logged as a warning on the
 ``diskcache_community`` logger. A read-only cache returns the default from
 ``get`` without deleting the entry, and its ``peek`` and ``peekitem`` raise,
