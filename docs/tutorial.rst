@@ -983,9 +983,7 @@ reader using :class:`SafeDisk <diskcache_community.SafeDisk>` raises
 :meth:`memoize <diskcache_community.Cache.memoize>` with ``typed=True`` puts
 the class of each argument into the cache key. :class:`SafeDisk
 <diskcache_community.SafeDisk>` stores and reads the classes in its allowlist,
-such as ``int`` and ``str``, except ``NoneType`` and ``bool``: a call with
-``None``, ``True`` or ``False`` as an argument raises :exc:`TypeError` before
-the function runs.
+such as ``int`` and ``str``.
 
 Instead of falling back to the default :class:`Disk
 <diskcache_community.Disk>`, :meth:`SafeDisk.with_types
