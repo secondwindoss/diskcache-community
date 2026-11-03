@@ -6,7 +6,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Security
 
-- A `SafeDisk` that allows a module through `with_types(modules=...)` no longer resolves a metaclass defined there, and `with_types` refuses metaclasses such as `type` passed as classes. A crafted row could call one to build a class from its own data, and building a class can run code: with `modules=('pydantic',)`, pydantic's model metaclass evaluated a string annotation from the row while it was read. Classes allowed by identity, such as `with_types(MyModel)`, were not affected (PR #42).
+- A `SafeDisk` that allows a module through `with_types(modules=...)` no longer resolves a metaclass defined there, and `with_types` refuses metaclasses such as `type` passed as classes. A crafted row could call one to build a class from its own data, and building a class can run code: with `modules=('pydantic',)`, pydantic's model metaclass evaluated a string annotation from the row while it was read. Classes allowed by identity, such as `with_types(MyModel)`, were not affected (PR #43).
 - `SafeDisk.with_types` refuses the classes of scipy, torch, bitstruct and pyahocorasick, by class, by module name and through `DISKCACHE_SAFE_MODULES`, as it refuses numpy: a crafted scipy sparse matrix, pyahocorasick automaton or bitstruct compiled format crashes the reader, and torch builds some objects by compiling code. Code that allowed them gets `ValueError` from `with_types` (PR #42).
 
 ### Fixes
