@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.3 (2026-11-03)
+
+Closes a code-execution path through metaclasses in `SafeDisk.with_types(modules=...)`, fixes a 5.8.2 regression in `Cache` subclasses that override `_con`, lets `SafeDisk` store `memoize(typed=True)` keys and `SafeDisk.with_numpy()` store `datetime64` arrays, and refuses scipy, torch, bitstruct and pyahocorasick in `with_types`. The `cache.db` schema and the file layout are unchanged.
 
 ### Security
 
@@ -28,7 +30,7 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 - A cache whose directory or `cache.db` the process cannot write opens read-only, as since 5.7.0, where 5.6.3 failed to open it. A cache owned by another account is then read, and a library's fallback for an unwritable cache is skipped. A later release will warn, refuse or offer an option that requires a writable cache.
 - The write check of `SafeDisk` scans the pickle in Python, which takes about ten times as long as pickling a very large value. Reads are not affected.
-- Objects that no allowlist can hold, such as those whose pickle calls a function, need the default `Disk`. Signed entries, planned for 5.9, are meant to cover them.
+- Objects that no allowlist can hold, such as those whose pickle calls a function, need the default `Disk`. Signed entries, planned for a later release, are meant to cover them.
 
 ## 5.8.2 (2026-11-02)
 
