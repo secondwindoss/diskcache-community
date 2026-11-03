@@ -682,25 +682,41 @@ def test_the_environment_variable_names_the_default_key_file(
     assert path.exists()
 
 
+# A root the running system treats as absolute: on Windows, Python 3.13 and
+# later need a drive for that, so a path like '/data' would not do.
+ANCHOR = op.abspath(os.sep)
+HOME = op.join(ANCHOR, 'home', 'u')
+
+
 @pytest.mark.parametrize(
     'platform, environ, home, expected',
     [
-        ('linux', {'XDG_DATA_HOME': '/data'}, '/home/u', '/data'),
-        ('linux', {}, '/home/u', op.join('/home/u', '.local', 'share')),
+        (
+            'linux',
+            {'XDG_DATA_HOME': op.join(ANCHOR, 'data')},
+            HOME,
+            op.join(ANCHOR, 'data'),
+        ),
+        ('linux', {}, HOME, op.join(HOME, '.local', 'share')),
         (
             'linux',
             {'XDG_DATA_HOME': 'relative'},
-            '/home/u',
-            op.join('/home/u', '.local', 'share'),
+            HOME,
+            op.join(HOME, '.local', 'share'),
         ),
         (
             'darwin',
             {},
-            '/Users/u',
-            op.join('/Users/u', 'Library', 'Application Support'),
+            HOME,
+            op.join(HOME, 'Library', 'Application Support'),
         ),
-        ('win32', {'LOCALAPPDATA': '/appdata'}, '/home/u', '/appdata'),
-        ('win32', {}, '/home/u', None),
+        (
+            'win32',
+            {'LOCALAPPDATA': op.join(ANCHOR, 'appdata')},
+            HOME,
+            op.join(ANCHOR, 'appdata'),
+        ),
+        ('win32', {}, HOME, None),
         ('linux', {}, '~', None),
     ],
 )
