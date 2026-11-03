@@ -1996,8 +1996,12 @@ class Cache:
         cur = getattr(self._local, 'cur', None)
 
         if cur is None:
-            self._connect()
-            cur = self._local.cur
+            # Through _con, so a subclass that overrides it, to open another
+            # database file say, gets a cursor on that connection.
+            con = self._con
+            cur = getattr(self._local, 'cur', None)
+            if cur is None or cur.connection is not con:
+                cur = self._local.cur = con.cursor()
 
         return cur
 
