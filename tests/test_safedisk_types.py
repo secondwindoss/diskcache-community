@@ -1,6 +1,8 @@
 """Test diskcache_community.SafeDisk.with_types."""
 
+import abc
 import copyreg
+import enum
 import io
 import os.path as op
 import pickle
@@ -480,6 +482,59 @@ def test_refusal_names_an_unsafe_package(directory, monkeypatch):
         'it pickles bitstruct.Format, which the allowlist refuses;'
         ' with_types() refuses bitstruct classes'
     )
+
+
+class Call:
+    """Pickles as a call of `func` with `args`, as a crafted row can."""
+
+    def __init__(self, func, *args):
+        self.func = func
+        self.args = args
+
+    def __reduce__(self):
+        return self.func, self.args
+
+
+def test_metaclasses_are_refused():
+    metaclasses = (type, type(enum.Enum), abc.ABCMeta)
+
+    for entry in metaclasses:
+        with pytest.raises(ValueError, match='refuses the metaclass'):
+            dc.SafeDisk.with_types(entry)
+
+    unpickler = SafeUnpickler(
+        io.BytesIO(b''), classes=metaclasses, modules=('enum', 'abc')
+    )
+    for entry in metaclasses:
+        with pytest.raises(pickle.UnpicklingError, match='refuses'):
+            unpickler.find_class(entry.__module__, entry.__qualname__)
+
+    assert unpickler.find_class('enum', 'Enum') is enum.Enum
+    assert unpickler.find_class('abc', 'ABC') is abc.ABC
+
+
+def test_pydantic_metaclass_cannot_build_a_class(directory):
+    pydantic = pytest.importorskip('pydantic')
+    marker = op.join(directory, 'marker')
+    # pydantic evaluates a string annotation when it builds a model class.
+    code = "__import__('pathlib').Path(%r).write_text('ran')" % marker
+    row = Call(
+        type(pydantic.BaseModel),
+        'Crafted',
+        (pydantic.BaseModel,),
+        {'__module__': __name__, '__annotations__': {'x': code}},
+    )
+
+    with dc.Cache(directory, disk=dc.Disk) as cache:
+        cache['key'] = row
+
+    disk = dc.SafeDisk.with_types(modules=('pydantic',))
+
+    with dc.Cache(directory, disk=disk) as cache:
+        with pytest.raises(pickle.UnpicklingError, match='ModelMetaclass'):
+            cache['key']
+
+    assert not op.exists(marker)
 
 
 def test_modules_are_never_imported_by_a_read():

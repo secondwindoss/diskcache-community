@@ -737,8 +737,10 @@ class SafeUnpickler(pickle.Unpickler):
     `modules` adds every class defined in the given modules or below them.
     A class is looked up attribute by attribute and every step must be a
     class, so dotted names that pass through a module or a dunder attribute
-    are refused. Classes are looked up only in modules that are already
-    imported; reading a pickle never imports a module.
+    are refused. A metaclass is refused even when allowed, because calling
+    one builds a class from the pickle's data, and building a class can run
+    code. Classes are looked up only in modules that are already imported;
+    reading a pickle never imports a module.
 
     """
 
@@ -779,6 +781,9 @@ class SafeUnpickler(pickle.Unpickler):
             obj = getattr(obj, part, None)
             if not isinstance(obj, type):
                 return None
+
+        if issubclass(obj, type):
+            return None
 
         return obj
 
@@ -892,9 +897,10 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        Classes of numpy, scipy, torch, bitstruct and pyahocorasick are
-        refused, because a crafted pickle of one can corrupt memory or run
-        code; use :meth:`with_numpy` to store arrays.
+        Metaclasses, such as ``type`` or the one pydantic models share, and
+        classes of numpy, scipy, torch, bitstruct and pyahocorasick are
+        refused, even through `modules`, because a crafted pickle of one can
+        corrupt memory or run code; use :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -908,12 +914,18 @@ class SafeDisk(Disk):
         :return: SafeDisk subclass to pass as ``disk=``
         :raises TypeError: if an entry of `types` is not a class
         :raises ValueError: if an entry of `modules` is not a module name, or
-            a type or module belongs to one of those packages
+            a type is a metaclass, or a type or module belongs to one of
+            those packages
 
         """
         for entry in types:
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
+            if issubclass(entry, type):
+                raise ValueError(
+                    'with_types refuses the metaclass %r: a pickle that calls'
+                    ' it builds a class, which can run code' % (entry,)
+                )
             for unsafe in _UNSAFE_MODULES:
                 if _in_modules(entry.__module__, (unsafe,)):
                     raise ValueError(
@@ -1063,6 +1075,8 @@ class SafeDisk(Disk):
 
         if not isinstance(obj, type):
             return '; it is not a class, and with_types() allows only classes'
+        if issubclass(obj, type):
+            return '; with_types() refuses metaclasses'
         if module in ('builtins', '__builtin__'):
             return ''
         return '; allow it with SafeDisk.with_types()'

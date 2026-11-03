@@ -411,7 +411,8 @@ def test_refusal_messages(cache):
         ' class, and with_types() allows only classes' % __name__
     )
     assert refusal((1, type(None))).endswith(
-        'it pickles builtins.type, which the allowlist refuses'
+        'it pickles builtins.type, which the allowlist refuses; with_types()'
+        ' refuses metaclasses'
     )
     assert refusal([bool]).endswith(
         'it pickles builtins.bool, which the allowlist refuses'

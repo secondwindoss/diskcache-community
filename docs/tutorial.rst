@@ -1022,7 +1022,9 @@ crafted array pickle can corrupt memory. Use :meth:`SafeDisk.with_numpy
 <diskcache_community.SafeDisk.with_numpy>` to store arrays instead. Classes of
 scipy, torch, bitstruct and pyahocorasick are refused too: crafted sparse
 matrices, automatons and compiled formats crash the reader, and torch builds
-some objects by compiling code. A write
+some objects by compiling code. Metaclasses, such as ``type`` and the one
+pydantic models share, are refused even in an allowed module, because a pickle
+that calls one builds a class, which can run code. A write
 whose value pickles a class outside the allowlist raises :exc:`TypeError` that
 names the class. Calling ``with_types`` on the returned class adds to its
 allowlist, and a cache that uses it can be pickled as usual.
