@@ -874,6 +874,13 @@ class SafeDisk(Disk):
     safe_numpy: bool = False
     signing = None
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # A subclass of a signing disk is passed key= too, so an override of
+        # fetch that cannot take it fails here rather than on the first read.
+        if cls.signing is not None:
+            signing.check_fetch(cls)
+
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         super().__init__(directory, min_file_size, pickle_protocol)
         self._real_directory = op.realpath(directory)
@@ -1899,8 +1906,11 @@ class Cache:  # pylint: disable=too-many-instance-attributes
             if key.startswith('disk_')
         }
         self._disk = disk(directory, **kwargs)
-        # A signing disk checks the cache key of each row it reads.
-        self._fetch_with_key = getattr(self._disk, 'signing', None) is not None
+        # A signing disk checks the cache key of each row it reads. Only a
+        # SafeDisk signs, whatever other disks name their attributes.
+        self._fetch_with_key = (
+            isinstance(self._disk, SafeDisk) and self._disk.signing is not None
+        )
 
         self._init_settings(sql, sets, current_settings)
 

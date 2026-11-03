@@ -148,7 +148,7 @@ def source(cls, key_file, key):
     """Return the key source of `cls`.with_signing(), or raise."""
     if cls.safe_numpy:
         raise TypeError(NUMPY_REFUSED)
-    _check_fetch(cls)
+    check_fetch(cls)
 
     if key is not None:
         if key_file is not None:
@@ -164,7 +164,7 @@ def source(cls, key_file, key):
     return KeyFile(op.abspath(op.expanduser(os.fsdecode(key_file))))
 
 
-def _check_fetch(cls):
+def check_fetch(cls):
     """Raise TypeError unless the `fetch` of `cls` accepts ``key=``."""
     method = cls.fetch
     if method is SafeDisk.fetch:
@@ -233,11 +233,7 @@ def load_key_file(path, directory):
     permissions let other users replace or read it.
 
     """
-    if _inside(op.realpath(path), directory):
-        raise ValueError(
-            'the signing key file %r is inside the cache directory %r'
-            % (path, directory)
-        )
+    _refuse_inside(path, directory)
 
     try:
         reader = open(path, 'rb')  # pylint: disable=consider-using-with
@@ -397,15 +393,24 @@ def _inside(path, directory):
         folder = parent
 
 
-def check_directory(disk, directory):
-    """Raise ValueError if the key file of `disk` is inside `directory`.
+def check_key_location(disk, directory):
+    """Raise ValueError if the key file `disk` reads is inside `directory`.
 
-    FanoutCache calls this for its own directory, since each shard's disk
-    sees only the shard's directory.
+    FanoutCache calls this for its own directory before it creates any
+    shard: each shard's disk sees only the shard's directory, and would
+    create a missing key file in the fanout directory before a later check
+    could refuse it. A missing `directory` is skipped.
 
     """
-    path = getattr(disk, '_signing_path', None)
-    if path is not None and _inside(path, directory):
+    source = getattr(disk, 'signing', None)
+    if not isinstance(source, KeyFile) or not op.isdir(directory):
+        return
+    path = default_key_file() if source.path is None else source.path
+    _refuse_inside(path, directory)
+
+
+def _refuse_inside(path, directory):
+    if _inside(op.realpath(path), directory):
         raise ValueError(
             'the signing key file %r is inside the cache directory %r'
             % (path, directory)

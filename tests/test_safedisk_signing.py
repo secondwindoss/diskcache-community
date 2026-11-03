@@ -645,11 +645,34 @@ def test_a_key_file_spelled_with_another_case_is_refused(directory):
         dc.Cache(directory, disk=disk)
 
 
-def test_a_key_file_in_a_fanout_cache_directory_is_refused(tmp_path):
+@pytest.mark.parametrize('exists', [False, True], ids=['new', 'existing'])
+def test_a_key_file_in_a_fanout_cache_directory_is_refused(tmp_path, exists):
     root = tmp_path / 'fanout'
+    if exists:
+        os.makedirs(root)
     disk = dc.SafeDisk.with_signing(root / 'signing.key')
     with pytest.raises(ValueError, match='inside the cache directory'):
         dc.FanoutCache(str(root), disk=disk, shards=2)
+    # Refused before any shard could create the key file there.
+    assert os.listdir(root) == []
+
+
+def test_a_default_key_file_in_a_fanout_cache_directory_is_refused(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / 'fanout'
+    monkeypatch.setenv(
+        signing.ENV_KEY_FILE, str(root / 'keys' / 'signing.key')
+    )
+    with pytest.raises(ValueError, match='inside the cache directory'):
+        dc.FanoutCache(str(root), disk=dc.SafeDisk.with_signing(), shards=2)
+    assert os.listdir(root) == []
+
+
+def test_key_location_skips_a_missing_directory(tmp_path):
+    disk = dc.SafeDisk.with_signing(tmp_path / 'fanout' / 'signing.key')
+    signing.check_key_location(disk, str(tmp_path / 'fanout'))
+    assert not op.exists(tmp_path / 'fanout')
 
 
 def test_a_zero_inode_falls_back_to_comparing_paths(
@@ -1134,6 +1157,35 @@ def test_subclasses_whose_fetch_accepts_key(directory, disk):
 def test_subclasses_whose_fetch_refuses_key(disk):
     with pytest.raises(TypeError, match='keyword argument key'):
         disk.with_signing()
+
+
+def test_subclasses_of_a_signing_disk_whose_fetch_refuses_key():
+    with pytest.raises(TypeError, match='Later.fetch does not accept'):
+
+        class Later(dc.SafeDisk.with_signing()):
+            def fetch(self, mode, filename, value, read):
+                return super().fetch(mode, filename, value, read)
+
+
+def test_subclasses_of_a_signing_disk_whose_fetch_accepts_key(directory):
+    class Later(dc.SafeDisk.with_signing()):
+        def fetch(self, mode, filename, value, read, key=None):
+            return super().fetch(mode, filename, value, read, key=key)
+
+    with dc.Cache(directory, disk=Later) as cache:
+        cache['key'] = Point(1, 2)
+        assert cache['key'] == Point(1, 2)
+
+
+def test_other_disks_with_a_signing_attribute_are_not_signing_disks(
+    directory,
+):
+    class Mine(dc.Disk):
+        signing = 'a name of their own'
+
+    with dc.Cache(directory, disk=Mine) as cache:
+        cache['key'] = Point(1, 2)
+        assert cache['key'] == Point(1, 2)
 
 
 def test_subclasses_whose_fetch_cannot_be_inspected(monkeypatch):
