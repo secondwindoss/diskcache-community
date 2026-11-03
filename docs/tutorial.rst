@@ -974,13 +974,18 @@ with the default :class:`Disk <diskcache_community.Disk>` and the reverse, as
 long as the values are within the allowlist. Some uses need the default
 :class:`Disk <diskcache_community.Disk>` because their objects are outside it:
 instances of your own classes, Django model instances and ``HttpResponse``
-objects, datetimes whose ``tzinfo`` is a ``zoneinfo.ZoneInfo`` rather than a
-``datetime.timezone``, and :meth:`memoize <diskcache_community.Cache.memoize>`
-with ``typed=True``, which puts ``type`` objects into the cache key. Every
-process that writes to a shared directory with the default :class:`Disk
-<diskcache_community.Disk>` must be trusted, and a reader using
-:class:`SafeDisk <diskcache_community.SafeDisk>` raises
+objects, and datetimes whose ``tzinfo`` is a ``zoneinfo.ZoneInfo`` rather than
+a ``datetime.timezone``. Every process that writes to a shared directory with
+the default :class:`Disk <diskcache_community.Disk>` must be trusted, and a
+reader using :class:`SafeDisk <diskcache_community.SafeDisk>` raises
 :exc:`pickle.UnpicklingError` on those rows.
+
+:meth:`memoize <diskcache_community.Cache.memoize>` with ``typed=True`` puts
+the class of each argument into the cache key. :class:`SafeDisk
+<diskcache_community.SafeDisk>` stores and reads the classes in its allowlist,
+such as ``int`` and ``str``, except ``NoneType`` and ``bool``: a call with
+``None``, ``True`` or ``False`` as an argument raises :exc:`TypeError` before
+the function runs.
 
 Instead of falling back to the default :class:`Disk
 <diskcache_community.Disk>`, :meth:`SafeDisk.with_types

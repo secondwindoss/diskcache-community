@@ -18,7 +18,12 @@ import zoneinfo
 import pytest
 
 import diskcache_community as dc
-from diskcache_community.core import MODE_BINARY, MODE_PICKLE, SafeUnpickler
+from diskcache_community.core import (
+    MODE_BINARY,
+    MODE_PICKLE,
+    SAFE_TYPES,
+    SafeUnpickler,
+)
 
 pytestmark = pytest.mark.filterwarnings('ignore', category=dc.EmptyDirWarning)
 
@@ -104,6 +109,10 @@ SAFE_VALUES = [
     decimal.Decimal('-1e100'),
     fractions.Fraction(1, 3),
     uuid.UUID('12345678-1234-5678-1234-567812345678'),
+    co.defaultdict(int, {'a': 1}),
+    # The classes themselves, as memoize(typed=True) puts them into keys.
+    *sorted(SAFE_TYPES - {type(None), bool}, key=repr),
+    ('f', 1, 'a', int, str),
 ]
 
 HASHABLE_VALUES = [
@@ -121,11 +130,15 @@ UNSAFE_VALUES = [
     (1, (2, (Custom(),))),
     co.deque([Custom()]),
     co.defaultdict(Custom),
+    co.defaultdict(bool),
     dt.datetime(2020, 1, 2, tzinfo=CustomTz()),
     dt.time(1, tzinfo=CustomTz()),
     dt.datetime(2020, 1, 2, tzinfo=zoneinfo.ZoneInfo('UTC')),
     type,
-    int,
+    type(None),
+    bool,
+    (1, type(None)),
+    Custom,
     len,
     Poison,
     object(),
@@ -330,21 +343,45 @@ def test_key_rejected(cache):
     assert len(cache) == 0
 
 
-def test_typed_memoize_rejected(cache):
-    @cache.memoize(typed=True)
-    def identity(value):
-        return value
+@pytest.mark.parametrize('disk', [dc.SafeDisk, dc.SafeDisk.with_types()])
+def test_typed_memoize(directory, disk):
+    with dc.Cache(directory, disk=disk) as cache:
 
-    with pytest.raises(TypeError, match='SafeDisk cannot store key'):
-        identity(1)
+        @cache.memoize(typed=True)
+        def identity(value):
+            return value
 
-    @cache.memoize()
-    def plain(value):
-        return value
+        assert identity(1) == 1
+        assert identity(1.0) == 1.0
+        assert identity('a') == 'a'
+        assert identity(1) == 1
+        assert len(cache) == 3
 
-    assert plain(1) == 1
-    assert plain(1) == 1
-    assert len(cache) == 1
+        with pytest.raises(TypeError, match='SafeDisk cannot store key'):
+            identity(None)
+
+        with pytest.raises(TypeError, match='SafeDisk cannot store key'):
+            identity(True)
+
+        assert len(cache) == 3
+
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        assert sorted(key[-1].__name__ for key in cache) == [
+            'float',
+            'int',
+            'str',
+        ]
+
+
+def test_refused_class_is_named(cache):
+    with pytest.raises(TypeError, match='holding the class builtins.NoneType'):
+        cache[(1, type(None))] = 1
+
+    with pytest.raises(TypeError, match='holding the class builtins.bool'):
+        cache['key'] = [bool]
+
+    with pytest.raises(TypeError, match='defaultdict factory'):
+        cache['key'] = co.defaultdict(bool)
 
 
 def test_read_values_untouched(cache):

@@ -593,6 +593,14 @@ SAFE_TYPES = frozenset(
     }
 )
 
+# Classes that SafeDisk accepts as objects, such as the classes that
+# memoize(typed=True) puts into keys and the factory of a defaultdict: the
+# classes in SAFE_TYPES that pickle as a name the reader resolves. NoneType
+# pickles as a call to builtins.type, and bool as builtins.bool, which the
+# reader refuses.
+
+_SAFE_CLASSES = SAFE_TYPES - {type(None), bool}
+
 _SAFE_MAPPINGS = (dict, co.Counter, co.OrderedDict, co.defaultdict)
 _SAFE_SEQUENCES = (list, tuple, set, frozenset, co.deque)
 _SAFE_TZ_TYPES = (type(None), dt.timezone)
@@ -838,10 +846,12 @@ class SafeDisk(Disk):
     ``FanoutCache(directory, disk=SafeDisk)``, ``Deque(disk=SafeDisk)``,
     ``Index(disk=SafeDisk)`` or the ``DISK`` option of the Django backend.
 
-    Objects outside the allowlist, such as instances of your own classes,
-    Django model instances and responses, and the ``type`` objects that
-    ``memoize(typed=True)`` puts into keys, need either the default
-    :class:`Disk` or a disk from :meth:`with_types` that allows them.
+    Objects outside the allowlist, such as instances of your own classes and
+    Django model instances and responses, need either the default
+    :class:`Disk` or a disk from :meth:`with_types` that allows them. The
+    allowed classes themselves can be stored too, except ``NoneType`` and
+    ``bool``, so ``memoize(typed=True)`` works unless an argument is
+    ``None``, ``True`` or ``False``.
 
     """
 
@@ -1023,6 +1033,13 @@ class SafeDisk(Disk):
             type_item = type(item)
 
             if type_item not in SAFE_TYPES:
+                if isinstance(item, type):
+                    if item in _SAFE_CLASSES:
+                        continue
+                    raise TypeError(
+                        'SafeDisk cannot store %s holding the class %s.%s'
+                        % (what, item.__module__, item.__qualname__)
+                    )
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s'
                     % (what, type_item.__module__, type_item.__qualname__)
@@ -1034,7 +1051,7 @@ class SafeDisk(Disk):
                 seen.add(id(item))
                 if type_item is co.defaultdict:
                     factory = item.default_factory
-                    if factory is not None and factory not in SAFE_TYPES:
+                    if factory is not None and factory not in _SAFE_CLASSES:
                         raise TypeError(
                             'SafeDisk cannot store %s with defaultdict'
                             ' factory %r' % (what, factory)

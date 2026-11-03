@@ -20,7 +20,7 @@ Where this fork stands:
 - 5.8.0 is imported as `diskcache_community`, next to the upstream `diskcache` package. `SafeDisk.with_types` allows your own classes and the classes defined in named modules while everything else stays refused; numpy classes cannot be allowed, because numpy unpickling is not memory-safe. `configure()` and `DISKCACHE_DISK=safe` select `SafeDisk` for caches created without a disk, including those that libraries create through `diskcache_community`. `Disk.with_options(on_error='miss')` deletes entries that cannot be read and treats them as missing. The steps are in [Fix CVE-2025-69872 in diskcache](https://diskcache-community.readthedocs.io/en/latest/fix-cve-2025-69872.html).
 - `JSONDisk` writes no pickles but still reads one from a crafted row, as it does in 5.6.3. `SafeJSONDisk` reads and writes the same files and never reads a pickle; `SafeDisk` does not decode what `JSONDisk` wrote.
 - `SafeDisk.with_numpy()` returns a `SafeDisk` that also stores numpy arrays, in the `.npy` format rather than as pickles. numpy pickles stay refused, because unpickling an array is not memory-safe.
-- The default stays as it is. Existing caches hold objects outside any allowlist, such as instances of your own classes, Django responses and the keys of `memoize(typed=True)`, so `SafeDisk` remains an explicit choice.
+- The default stays as it is. Existing caches hold objects outside any allowlist, such as instances of your own classes and Django responses, so `SafeDisk` remains an explicit choice.
 
 ## Dependencies
 
