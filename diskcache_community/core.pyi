@@ -14,7 +14,7 @@ from typing import (
     overload,
 )
 
-from _typeshed import StrOrBytesPath
+from _typeshed import StrOrBytesPath, StrPath
 from typing_extensions import Self, TypeVar, Unpack
 
 from ._types import (
@@ -40,6 +40,7 @@ from ._types import (
     Tag,
     UnknownType,
 )
+from .signing import InMemoryKey, KeyFile
 
 _T = TypeVar('_T')
 _BoundStrT = TypeVar('_BoundStrT', bound=str)
@@ -191,16 +192,36 @@ class SafeDisk(Disk):
     safe_types: frozenset[type]
     safe_modules: tuple[str, ...]
     safe_numpy: bool
+    signing: KeyFile | InMemoryKey | None
     @classmethod
     def with_types(
         cls, *types: type, modules: str | Iterable[str] = ...
     ) -> type[Self]: ...
     @classmethod
     def with_numpy(cls) -> type[Self]: ...
+    @classmethod
+    def with_signing(
+        cls, key_file: StrPath | None = ..., *, key: bytes | None = ...
+    ) -> type[Self]: ...
+    def fetch(  # type: ignore[override]
+        self,
+        mode: ModeLiteral,
+        filename: str | None,
+        value: Any,
+        read: bool,
+        key: tuple[Any, bool] | None = ...,
+    ) -> Any: ...
 
 class SafeJSONDisk(JSONDisk, SafeDisk):
     @classmethod
     def with_numpy(cls) -> NoReturn: ...
+    @classmethod
+    def with_signing(
+        cls, key_file: StrPath | None = ..., *, key: bytes | None = ...
+    ) -> NoReturn: ...
+    def fetch(  # type: ignore[override]
+        self, mode: ModeLiteral, filename: str | None, value: Any, read: bool
+    ) -> Any: ...
 
 def configure(disk: type[Disk] | None) -> None: ...
 def default_disk() -> type[Disk]: ...

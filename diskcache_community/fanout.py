@@ -18,6 +18,7 @@ from .core import (
     default_disk,
 )
 from .persistent import Deque, Index
+from .signing import check_directory
 
 
 def _default_with_meta(default, expire_time, tag, store_time=False):
@@ -71,6 +72,9 @@ class FanoutCache:
             )
             for num in range(shards)
         )
+        # A shard's disk checks the key file against the shard's directory,
+        # so the key file must also be outside this one.
+        check_directory(self._shards[0].disk, directory)
         self._hash = self._shards[0].disk.hash
         self._caches = {}
         self._deques = {}
