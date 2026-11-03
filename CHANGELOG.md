@@ -2,6 +2,12 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Fixes
+
+- `incr` and `decr` on `Cache` and `FanoutCache` type-check with `default=None`, which makes a missing key raise `KeyError`: the stubs typed `default` as `int`, so type checkers rejected the call. `tox -e mypy` now also checks `tests/typecheck_stubs.py`, a file of calls that must type-check against the stubs (PR #41).
+
 ## 5.8.2 (2026-11-02)
 
 Adds `SafeJSONDisk` and `SafeDisk.with_numpy()`, keeps float NaN values, and makes `get` and `set` faster. The `cache.db` schema and the file layout are unchanged.
