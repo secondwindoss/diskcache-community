@@ -863,9 +863,8 @@ class SafeDisk(Disk):
     Objects outside the allowlist, such as instances of your own classes and
     Django model instances and responses, need either the default
     :class:`Disk` or a disk from :meth:`with_types` that allows them. The
-    allowed classes themselves can be stored too, except ``NoneType`` and
-    ``bool``, so ``memoize(typed=True)`` works unless an argument is
-    ``None``, ``True`` or ``False``.
+    allowed classes themselves can be stored too, so ``memoize(typed=True)``
+    works.
 
     """
 

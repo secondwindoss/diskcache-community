@@ -6,14 +6,14 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 
 ### Security
 
-- `SafeDisk.with_types` refuses the classes of scipy, torch, bitstruct and pyahocorasick, by class, by module name and through `DISKCACHE_SAFE_MODULES`, as it refuses numpy: a crafted scipy sparse matrix, pyahocorasick automaton or bitstruct compiled format crashes the reader, and torch builds some objects by compiling code. Code that allowed them gets `ValueError` from `with_types` (PR #42).
+- `SafeDisk.with_types` refuses the classes of scipy, torch, bitstruct and pyahocorasick, by class, by module name and through `DISKCACHE_SAFE_MODULES`, as it refuses numpy, so a crafted scipy sparse matrix, pyahocorasick automaton or bitstruct compiled format cannot crash the reader and torch objects cannot run code through the cache (PR #42).
 
 ### Fixes
 
 - `Cache.get` works again in subclasses that override `_con` to keep their rows in another database file, as subclasses written for 5.6.3 do. Since 5.8.2 its fast path took its cursor from a connection to `cache.db`, so every read raised `OperationalError: no such table: Cache` (PR #42).
-- `SafeDisk` stores the classes in its allowlist, such as `int` and `str`, so `memoize(typed=True)` works with it: those keys hold the classes of the arguments, which every `SafeDisk` reads but plain `SafeDisk` and `with_types()` with no arguments refused to write. `NoneType` and `bool` stay refused, because the reader refuses them, and a `defaultdict(bool)`, which was written but could not be read back, is now refused too (PR #42).
-- `SafeDisk.with_numpy()` stores `datetime64` and `timedelta64` arrays, which raised `ValueError` from `pickle.PickleBuffer`. Their scalars still raise `TypeError` (PR #42).
-- Every `SafeDisk` checks a key or value outside the standard-library types against the names its pickle looks up, as the disks from `with_types` already did. A plain `SafeDisk` therefore stores a dict subclass that pickles as a `dict`, such as DRF's `ReturnDict`, and reads back a `dict`, and an object that cannot be pickled raises `TypeError` on every `SafeDisk` (PR #42).
+- `SafeDisk` stores the classes in its allowlist, such as `int` and `str`, so `memoize(typed=True)` works with it (PR #42).
+- `SafeDisk.with_numpy()` stores `datetime64` and `timedelta64` arrays, which raised `ValueError` from `pickle.PickleBuffer` (PR #42).
+- Every `SafeDisk` checks a key or value outside the standard-library types against the names its pickle looks up, as the disks from `with_types` already did. A plain `SafeDisk` therefore stores a dict subclass that pickles as a `dict`, such as DRF's `ReturnDict`, and reads back a `dict` (PR #42).
 - Refusal messages say what to do: a refused function no longer points to `with_types()`, which allows only classes; numpy objects point to `with_numpy()`; an array of objects mentions pandas DataFrames and what to store instead; and a class from a package `with_types` refuses says so (PR #42).
 - `incr` and `decr` on `Cache` and `FanoutCache` type-check with `default=None`, which makes a missing key raise `KeyError`: the stubs typed `default` as `int`, so type checkers rejected the call. `tox -e mypy` now also checks `tests/typecheck_stubs.py`, a file of calls that must type-check against the stubs (PR #41).
 - The `modules` argument of `SafeDisk.with_types` type-checks with a single string or any iterable of strings, as the code accepts (PR #42).
@@ -23,12 +23,6 @@ diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 20
 - The CVE page and the migration guide say up front that `JSONDisk` does not protect reads, because it reads each row as its `mode` column says, and point to `SafeJSONDisk`. The migration guide explains that Dash's `DiskcacheManager` takes only an upstream cache and keeps its signing secret there, so its folder should be its own (PR #42).
 - The tutorial no longer says that `memoize(typed=True)` needs the default `Disk` (PR #42).
 
-### Known issues
-
-- A cache whose directory or `cache.db` the process cannot write opens read-only, as since 5.7.0, where 5.6.3 failed to open it. A cache owned by another account is then read, and a library's fallback for an unwritable cache is skipped. A later release will warn, refuse or offer an option that requires a writable cache.
-- The write check of `SafeDisk` scans the pickle in Python, which takes about ten times as long as pickling a very large value. Reads are not affected.
-- Objects that no allowlist can hold, such as those whose pickle calls a function, need the default `Disk`. Signed entries, planned for 5.9, are meant to cover them.
-
 ## 5.8.2 (2026-11-02)
 
 Adds `SafeJSONDisk` and `SafeDisk.with_numpy()`, keeps float NaN values, and makes `get` and `set` faster. The `cache.db` schema and the file layout are unchanged.
@@ -37,7 +31,7 @@ Adds `SafeJSONDisk` and `SafeDisk.with_numpy()`, keeps float NaN values, and mak
 
 - `SafeJSONDisk` stores JSON like `JSONDisk`, reads and writes the same files, and never reads a pickle. `JSONDisk` writes only JSON but inherits the pickle reads of `Disk`, so a crafted row still ran code and a crafted path could still delete a file outside the cache. `SafeJSONDisk` refuses pickled keys and values without parsing them and confines paths as `SafeDisk` does (PR #33).
 
-- `SafeDisk.with_numpy()` returns a `SafeDisk` subclass that stores numpy arrays in the `.npy` format instead of pickling them, through pickle's persistent IDs, anywhere in a value including inside classes allowed with `with_types`, which combines with it in either order, as `with_options` does. numpy scalars read back as the same type. Reading a large array takes no second copy of it. Headers are checked against the data, so forged arrays are refused rather than raising `MemoryError`, and every forged entry raises `UnpicklingError` or reads as a miss with `on_error='miss'`. Object arrays, `ndarray` subclasses and arrays the reader would refuse raise `TypeError` at write time. Entries holding numpy data can't be read by other disks, including a plain `SafeDisk`, or by 5.6.3, which raise `UnpicklingError`. numpy stays optional, and `SafeDisk` without `with_numpy()` still refuses it; its `with_types` error now points to `with_numpy()` (PR #34).
+- `SafeDisk.with_numpy()` returns a `SafeDisk` subclass that stores numpy arrays in the `.npy` format instead of pickling them, through pickle's persistent IDs, anywhere in a value including inside classes allowed with `with_types`, which combines with it in either order, as `with_options` does. numpy scalars read back as the same type. Reading a large array takes no second copy of it. Headers are checked against the data, so forged arrays are refused rather than raising `MemoryError`, and every forged entry raises `UnpicklingError` or reads as a miss with `on_error='miss'`. numpy stays optional, and `SafeDisk` without `with_numpy()` still refuses it; its `with_types` error now points to `with_numpy()` (PR #34).
 - `DISKCACHE_SAFE_TYPES` and `DISKCACHE_SAFE_MODULES` now apply when `DISKCACHE_DISK` names a `SafeDisk` subclass, not only with `safe` (PR #34).
 
 ### Fixes

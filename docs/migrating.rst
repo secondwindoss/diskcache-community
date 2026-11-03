@@ -122,8 +122,8 @@ repository lists every change.
   their permissions. If several users share a cache directory, create it with
   the permissions you want before the first cache opens it.
 * **Read-only caches.** A cache whose database or directory is not writable
-  opens read-only instead of failing, as does ``Cache(directory,
-  read_only=True)``. Reads work and every write raises :exc:`ReadOnlyError
+  opens read-only, as does ``Cache(directory, read_only=True)``. Reads work
+  and every write raises :exc:`ReadOnlyError
   <diskcache_community.ReadOnlyError>`, a subclass of
   :exc:`sqlite3.OperationalError`. Opening an existing cache writes nothing
   unless a setting differs from the stored one.
