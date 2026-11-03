@@ -1125,6 +1125,135 @@ and keeps it, even with ``on_error='miss'``. Arrays that the default
 :class:`Disk <diskcache_community.Disk>` pickled earlier are refused like any
 other pickle outside the allowlist, so compute them again.
 
+.. _tutorial-signing:
+
+Signing entries
+...............
+
+Some caches hold objects that no allowlist can hold: a parsed database whose
+pickle calls functions, a torch model, instances of an application's own
+classes, a ``requests.Response``. :meth:`SafeDisk.with_signing
+<diskcache_community.SafeDisk.with_signing>` returns a :class:`SafeDisk
+<diskcache_community.SafeDisk>` subclass that stores such values as full
+pickles with an HMAC-SHA256 tag, and checks the tag before it unpickles
+anything:
+
+.. code-block:: python
+
+    from diskcache_community import Cache, SafeDisk
+
+    SignedDisk = SafeDisk.with_signing().with_options(on_error='miss')
+    cache = Cache('/var/tmp/mycache', disk=SignedDisk)
+    cache['database'] = parse('vehicle.dbc')
+
+* Every value the disk pickles is signed. Values stored without pickling,
+  ``str``, ``bytes`` and ``int`` and ``float`` values, are stored as on every
+  disk and are not signed.
+* The tag covers the pickle and the cache key, so a signed value moved under
+  another key, or a value file pointed at by another row, is refused.
+  Numbers that SQLite treats as one key, such as ``1`` and ``1.0``, are the
+  same key here too. A NaN key raises :exc:`TypeError`, since SQLite stores it
+  as NULL.
+* A pickled value without a tag, including every pickle written by another
+  disk or by diskcache 5.6.3, is refused. Rows written before you switched to
+  signing are therefore refused once, and written again signed as they are
+  computed again.
+* Keys stay on the allowlist, as in :class:`SafeDisk
+  <diskcache_community.SafeDisk>`; :meth:`with_types
+  <diskcache_community.SafeDisk.with_types>` widens what keys may hold.
+  Store the name of a function in a key rather than the function.
+
+A refused value raises :exc:`pickle.UnpicklingError` with the reason. With
+``with_options(on_error='miss')`` it reads as missing and is deleted, which
+suits a cache whose values can be computed again. Keep the default,
+``'raise'``, when they cannot, so that a refused value stops the program with
+a reason rather than vanishing.
+
+The key file
+""""""""""""
+
+Without arguments, the key is read from a file outside every cache directory:
+
+* ``$DISKCACHE_SIGNING_KEY_FILE``, if it is set;
+* on Linux and other POSIX systems,
+  ``$XDG_DATA_HOME/diskcache-community/signing.key``, by default
+  ``~/.local/share/diskcache-community/signing.key``;
+* on macOS, ``~/Library/Application Support/diskcache-community/signing.key``;
+* on Windows, ``%LOCALAPPDATA%\diskcache-community\signing.key``.
+
+The file is created with a new random key the first time a cache opens, with
+mode ``0600`` in a folder with mode ``0700``. Pass ``key_file=`` to use a file
+of your own; it holds the key as text, and only a trailing newline is
+removed. Opening a cache raises :exc:`ValueError` when the key file is inside
+the cache directory and, on POSIX, when other users can write it or the
+folder it is in, when it belongs to another user, or when other users can
+read it, unless it belongs to root, as container platforms mount secrets. A
+root-owned key that other users can read hands the key to all of them, so
+mount it that way only in a container.
+
+When there is no home directory, or it cannot be written, opening the cache
+raises :exc:`OSError`. Set ``DISKCACHE_SIGNING_KEY_FILE`` in that case, or
+catch the error where your library opens its cache and fall back to no
+caching.
+
+In a container, the default works whenever ``HOME`` can be written, and every
+process in the container shares the key. Mount the key as a secret and set
+``DISKCACHE_SIGNING_KEY_FILE`` when entries must outlive the container, when
+several containers or CI runners share a cache, or when the root file system
+is read-only. Never put the key in an image, and never on the cache's own
+volume.
+
+For a cache that lives only as long as one process, pass the key instead:
+
+.. code-block:: python
+
+    import secrets
+
+    RunDisk = SafeDisk.with_signing(key=secrets.token_bytes(32))
+
+The key is then kept only in memory, and pickling a cache that uses it raises
+:exc:`TypeError`. A key must be at least 32 random bytes: a guessable key can
+be recovered from any signed row.
+
+Changing the key and sharing a directory
+""""""""""""""""""""""""""""""""""""""""
+
+To change the key, point the disk at a new key file. Rows signed with the old
+key are then refused once, and are computed again with ``on_error='miss'``;
+clear the directory if they cannot be computed again. Restart every process
+that shares the directory, since a process that still holds the old key keeps
+writing rows the others refuse.
+
+Every process that shares a directory must use a signing disk with the same
+key. Any other disk, and diskcache 5.6.3, raises
+:exc:`pickle.UnpicklingError` on a signed row without reading it, or deletes
+it with ``on_error='miss'``; an older version of a library that shares the
+directory with a newer one therefore raises on the newer one's entries. Users
+with different keys who share a directory refuse each other's rows.
+
+What signing does not cover
+"""""""""""""""""""""""""""
+
+* Anyone who can read the key can sign a row that runs code when it is read:
+  the same account, administrators, backups of the home directory, a copy of
+  the key on a shared volume.
+* Entries a publisher built on another machine and shipped with a package
+  cannot be verified with your key.
+* Someone who can write the cache can put back an older signed row for the
+  same key, change expiry times and tags, delete rows, or plant ``str``,
+  ``bytes`` and numbers, which are not signed.
+* A row whose tag matches is unpickled in full, so whatever the cached object
+  does when it is unpickled runs, as with :class:`Disk
+  <diskcache_community.Disk>`.
+
+:meth:`with_signing <diskcache_community.SafeDisk.with_signing>` combines with
+:meth:`with_types <diskcache_community.SafeDisk.with_types>` and
+:meth:`with_options <diskcache_community.Disk.with_options>` in any order. It
+does not combine with :meth:`with_numpy
+<diskcache_community.SafeDisk.with_numpy>`, since a signing disk pickles
+arrays in full, and :class:`SafeJSONDisk <diskcache_community.SafeJSONDisk>`
+has nothing to sign.
+
 .. _tutorial-default-disk:
 
 Default disk

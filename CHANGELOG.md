@@ -2,6 +2,16 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Signed entries
+
+This is a new, security-sensitive API in a patch release. Nothing existing changes unless you call it: no other disk behaves differently, and the `cache.db` schema and the file layout are unchanged.
+
+- `SafeDisk.with_signing()` returns a `SafeDisk` subclass that stores every value it pickles as a full pickle with an HMAC-SHA256 tag over the pickle and the cache key, and checks the tag before anything is unpickled. A library can then cache its own objects that no allowlist can hold, such as parsed databases, torch models, application objects and responses. A pickled value without a matching tag, including every unsigned pickle, raises `UnpicklingError`, or reads as missing with `on_error='miss'`. Values stored without pickling are stored as before, and keys stay on the allowlist (PR #46).
+- The key is read from a per-user file outside the cache directory, `$DISKCACHE_SIGNING_KEY_FILE` or `signing.key` in the user's local data directory, which is created with a new random key and mode `0600` on first use. Opening a cache refuses a key file inside the cache directory, or, on POSIX, one that other users can write or, unless it belongs to root, read. `key=` takes a key kept only in memory, for caches that live in one process; a cache that uses it cannot be pickled (PR #46).
+- Rows written by a signing disk raise `UnpicklingError` in every other disk and in diskcache 5.6.3 without being parsed; a `SafeDisk` without signing says the row is a signed entry. A signing disk does not combine with `with_numpy()`, and `SafeJSONDisk.with_signing()` raises (PR #46).
+
 ## 5.8.3 (2026-11-03)
 
 Fixes a regression from 5.8.2 and several `SafeDisk` issues found by testing downstream libraries, and updates the documentation. The `cache.db` schema and the file layout are unchanged.
