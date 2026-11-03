@@ -173,10 +173,18 @@ class BaseCache(Protocol):
         retry: bool = ...,
     ) -> bool: ...
     def incr(
-        self, key: Any, delta: int = ..., default: int = ..., retry: bool = ...
+        self,
+        key: Any,
+        delta: int = ...,
+        default: int | None = ...,
+        retry: bool = ...,
     ) -> int: ...
     def decr(
-        self, key: Any, delta: int = ..., default: int = ..., retry: bool = ...
+        self,
+        key: Any,
+        delta: int = ...,
+        default: int | None = ...,
+        retry: bool = ...,
     ) -> int: ...
     def get(  # noqa: PLR0913
         self,
