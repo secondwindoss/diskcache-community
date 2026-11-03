@@ -18,6 +18,15 @@ the memoize key format. A directory written by 5.6.3 opens with the fork, and
 a directory written by the fork opens with 5.6.3. The fork needs Python 3.8
 or later and has no runtime dependencies.
 
+.. important::
+
+   :class:`JSONDisk <diskcache_community.JSONDisk>` does not protect reads. It
+   writes JSON, but it reads each row as the row's ``mode`` column says, so a
+   crafted row holding a pickle is unpickled as with the default :class:`Disk
+   <diskcache_community.Disk>`. Use :class:`SafeJSONDisk
+   <diskcache_community.SafeJSONDisk>`, which reads the same files and never
+   reads a pickle.
+
 Steps
 -----
 
@@ -84,6 +93,16 @@ installed:
         import diskcache_community as diskcache
     except ImportError:
         import diskcache
+
+.. _migrating-dash:
+
+Dash is one such dependency: its ``DiskcacheManager`` checks that it is given
+an upstream ``diskcache.Cache``, so a diskcache-community cache cannot be
+handed to it. Dash keeps the secret that signs its background callbacks in
+that cache under a fixed key, and the cache holds pickles, so do not share the
+folder with anything else. ``DiskcacheManager()`` without a cache creates a
+private folder of its own, and setting ``DASH_SECRET_KEY`` keeps the secret
+out of the cache.
 
 Scanners keep reporting CVE-2025-69872 while the upstream package is
 installed. Run ``pip show diskcache`` to see whether it is, and, with

@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import tracemalloc
+import types
 
 import pytest
 
@@ -441,6 +442,44 @@ def test_numpy_is_refused(directory):
         for value in (np.arange(3), np.float64(1.5), np.dtype('f8')):
             with pytest.raises(TypeError, match='numpy'):
                 cache['value'] = value
+
+
+@pytest.mark.parametrize(
+    'package, module',
+    [
+        ('ahocorasick', 'ahocorasick'),
+        ('bitstruct', 'bitstruct.c'),
+        ('scipy', 'scipy.sparse._csr'),
+        ('torch', 'torch.fx.graph_module'),
+    ],
+)
+def test_unsafe_packages_are_refused(package, module):
+    entry = type('Thing', (), {'__module__': module})
+
+    with pytest.raises(ValueError, match='refuses the class .*not safe'):
+        dc.SafeDisk.with_types(entry)
+
+    for prefix in (package, module, package + '.'):
+        with pytest.raises(ValueError, match='refuses the module .*not safe'):
+            dc.SafeDisk.with_types(modules=prefix)
+
+    # A package whose name only starts with the same letters is allowed.
+    dc.SafeDisk.with_types(modules=package + 'x')
+
+
+def test_refusal_names_an_unsafe_package(directory, monkeypatch):
+    module = types.ModuleType('bitstruct')
+    module.Format = type('Format', (), {'__module__': 'bitstruct'})
+    monkeypatch.setitem(sys.modules, 'bitstruct', module)
+
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        with pytest.raises(TypeError) as info:
+            cache['value'] = [module.Format()]
+
+    assert str(info.value).endswith(
+        'it pickles bitstruct.Format, which the allowlist refuses;'
+        ' with_types() refuses bitstruct classes'
+    )
 
 
 def test_modules_are_never_imported_by_a_read():

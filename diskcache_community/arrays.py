@@ -93,7 +93,9 @@ def _pack_array(numpy, array):
     The buffer is the array's own memory, so pickle copies it once, into
     the row, as a bytearray. An array that is not contiguous or not
     writable is copied first, since pickle stores a read-only buffer as
-    bytes, which the reader refuses.
+    bytes, which the reader refuses. The buffer is a flat view of bytes,
+    since numpy exports no buffer for ``datetime64`` and ``timedelta64``
+    data; the dtype is in the header.
 
     """
     # pylint: disable=no-member
@@ -114,11 +116,16 @@ def _pack_array(numpy, array):
         header = buffer.getvalue()
         _read_header(numpy, header, array.nbytes)
     except (ValueError, pickle.UnpicklingError) as error:
-        raise TypeError(
-            'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
-        ) from error
+        message = 'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
+        if array.dtype.hasobject:
+            message += (
+                '; a pandas DataFrame holds its labels and text columns in'
+                ' such arrays, so store its records or columns instead'
+            )
+        raise TypeError(message) from error
 
-    return header, pickle.PickleBuffer(array)
+    data = array.reshape(-1, order='A').view(numpy.uint8)
+    return header, pickle.PickleBuffer(data)
 
 
 def _unpack_array(header, data):

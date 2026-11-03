@@ -187,6 +187,13 @@ def raw(header, body=b''):
         np.zeros((0, 3)),
         np.arange(4.0).reshape(2, 2).T,
         np.arange(3, dtype='>i4'),
+        # numpy exports no buffer for these, so the data goes as bytes.
+        np.array(['2026-01-01T00:00', 'NaT'], dtype='datetime64[ns]'),
+        np.arange(6).astype('datetime64[D]').reshape(2, 3).T,
+        np.array(np.datetime64('2026-01-01')),
+        np.arange(3).astype('>m8[s]'),
+        np.array([(1, 2)], dtype=[('a', 'i4'), ('t', 'M8[us]')]),
+        np.zeros(0, dtype='m8[ns]'),
     ],
     ids=lambda array: '%s-%s' % (array.dtype, array.shape),
 )
@@ -908,6 +915,34 @@ def test_safedisk_still_refuses_numpy(directory):
         with pytest.raises(TypeError, match='SafeDisk cannot store value'):
             cache['key'] = {'a': np.float64(1.5)}
         assert len(cache) == 0
+
+
+@pytest.mark.parametrize(
+    'disk', [dc.SafeDisk, dc.SafeDisk.with_types(co.UserDict)]
+)
+def test_numpy_refusals_point_to_with_numpy(directory, disk):
+    with dc.Cache(directory, disk=disk) as cache:
+        for value in (np.arange(2.0), np.dtype('f8'), [np.float64(1.5)]):
+            with pytest.raises(TypeError) as info:
+                cache['key'] = value
+            assert str(info.value).endswith(
+                'store arrays with SafeDisk.with_numpy()'
+            )
+
+
+def test_with_numpy_refusal_of_other_numpy_objects(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError) as info:
+            cache['key'] = {'dtype': np.dtype('f8')}
+    assert str(info.value).endswith(
+        'with_numpy() stores only arrays and numpy scalars'
+    )
+
+
+def test_object_array_refusal_mentions_dataframes(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='DataFrame .* records'):
+            cache['key'] = np.array(['a', None], dtype=object)
 
 
 def test_safejsondisk_refuses_with_numpy():

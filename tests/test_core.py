@@ -2319,6 +2319,50 @@ def test_get_after_close_uses_new_cursor(cache):
     assert cache._local.cur is not cur
 
 
+class OtherDatabaseCache(dc.Cache):
+    """Cache written against 5.6.3 that keeps its rows in other.db."""
+
+    @property
+    def _con(self):
+        con = getattr(self._local, 'con', None)
+        if con is None:
+            con = self._local.con = sqlite3.connect(
+                op.join(self._directory, 'other.db'),
+                timeout=self._timeout,
+                isolation_level=None,
+            )
+        return con
+
+
+def test_get_uses_cursor_of_overridden_con():
+    directory = tempfile.mkdtemp()
+    try:
+        with OtherDatabaseCache(directory) as cache:
+            cache.set('a', 1)
+            assert cache.get('a') == 1
+            assert cache._local.cur.connection is cache._con
+
+            other = []
+
+            def get_in_thread():
+                other.append(cache.get('a'))
+                cache.close()
+
+            thread = threading.Thread(target=get_in_thread)
+            thread.start()
+            thread.join()
+            assert other == [1]
+
+        with OtherDatabaseCache(directory) as cache:
+            assert cache.get('a') == 1
+            assert cache.get('b') is None
+
+        assert op.exists(op.join(directory, 'other.db'))
+        assert not op.exists(op.join(directory, 'cache.db'))
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def test_get_reads_only_value_columns_without_metadata(cache):
     cache.set('a', 1, tag='t')
     statements = []

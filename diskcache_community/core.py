@@ -557,9 +557,11 @@ SAFE_PICKLE_NAMES = {
     'uuid': frozenset({'UUID'}),
 }
 
-# Python types that SafeDisk accepts for writing: exactly the types that the
-# names above read back. Subclasses are rejected because pickle records the
-# subclass, which the reader would refuse.
+# Python types that SafeDisk accepts for writing without pickling them first:
+# exactly the types that the names above read back. Anything else is pickled
+# and accepted only if the reader resolves every name the pickle looks up, so
+# a subclass is refused, because pickle records the subclass, unless it
+# pickles as one of these types.
 
 SAFE_TYPES = frozenset(
     {
@@ -593,15 +595,35 @@ SAFE_TYPES = frozenset(
     }
 )
 
+# Classes that SafeDisk accepts as objects, such as the classes that
+# memoize(typed=True) puts into keys and the factory of a defaultdict: the
+# classes in SAFE_TYPES that pickle as a name the reader resolves. NoneType
+# pickles as a call to builtins.type, and bool as builtins.bool, which the
+# reader refuses.
+
+_SAFE_CLASSES = SAFE_TYPES - {type(None), bool}
+
 _SAFE_MAPPINGS = (dict, co.Counter, co.OrderedDict, co.defaultdict)
 _SAFE_SEQUENCES = (list, tuple, set, frozenset, co.deque)
 _SAFE_TZ_TYPES = (type(None), dt.timezone)
 
-# Packages whose classes SafeDisk.with_types refuses to allow. numpy restores
-# the internal flags of a dtype from its pickle without checking them, so a
-# crafted pickle can make an array read raw bytes as object pointers.
+# Packages whose classes SafeDisk.with_types refuses to allow, because a
+# crafted pickle of one can corrupt memory or run code. numpy restores the
+# internal flags of a dtype from its pickle without checking them, so a
+# crafted pickle can make an array read raw bytes as object pointers. scipy's
+# sparse matrices and pyahocorasick's automatons keep index data that their
+# compiled code trusts, bitstruct's compiled formats crash on state they did
+# not build, and torch builds some objects by compiling or running code.
 
-_UNSAFE_MODULES = ('numpy',)
+_UNSAFE_MODULES = ('numpy', 'ahocorasick', 'bitstruct', 'scipy', 'torch')
+
+
+def _unsafe_reason(package):
+    """Return why with_types refuses classes of the unsafe `package`."""
+    if package == 'numpy':
+        return '; use with_numpy() to store arrays'
+    return ': a crafted pickle of a %s object is not safe to read' % package
+
 
 _PICKLE_STRING_OPS = frozenset(
     {'BINUNICODE', 'BINUNICODE8', 'SHORT_BINUNICODE', 'UNICODE'}
@@ -838,10 +860,12 @@ class SafeDisk(Disk):
     ``FanoutCache(directory, disk=SafeDisk)``, ``Deque(disk=SafeDisk)``,
     ``Index(disk=SafeDisk)`` or the ``DISK`` option of the Django backend.
 
-    Objects outside the allowlist, such as instances of your own classes,
-    Django model instances and responses, and the ``type`` objects that
-    ``memoize(typed=True)`` puts into keys, need either the default
-    :class:`Disk` or a disk from :meth:`with_types` that allows them.
+    Objects outside the allowlist, such as instances of your own classes and
+    Django model instances and responses, need either the default
+    :class:`Disk` or a disk from :meth:`with_types` that allows them. The
+    allowed classes themselves can be stored too, except ``NoneType`` and
+    ``bool``, so ``memoize(typed=True)`` works unless an argument is
+    ``None``, ``True`` or ``False``.
 
     """
 
@@ -868,7 +892,9 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        numpy classes are refused; use :meth:`with_numpy` to store arrays.
+        Classes of numpy, scipy, torch, bitstruct and pyahocorasick are
+        refused, because a crafted pickle of one can corrupt memory or run
+        code; use :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -882,17 +908,18 @@ class SafeDisk(Disk):
         :return: SafeDisk subclass to pass as ``disk=``
         :raises TypeError: if an entry of `types` is not a class
         :raises ValueError: if an entry of `modules` is not a module name, or
-            a type or module is numpy (arrays belong to :meth:`with_numpy`)
+            a type or module belongs to one of those packages
 
         """
         for entry in types:
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
-            if _in_modules(entry.__module__, _UNSAFE_MODULES):
-                raise ValueError(
-                    'with_types refuses the class %r; use with_numpy() to'
-                    ' store arrays' % (entry,)
-                )
+            for unsafe in _UNSAFE_MODULES:
+                if _in_modules(entry.__module__, (unsafe,)):
+                    raise ValueError(
+                        'with_types refuses the class %r%s'
+                        % (entry, _unsafe_reason(unsafe))
+                    )
 
         if isinstance(modules, str):
             modules = (modules,)
@@ -903,15 +930,14 @@ class SafeDisk(Disk):
                 part.isidentifier() for part in prefix.split('.')
             ):
                 raise ValueError('%r is not a module name' % (entry,))
-            if any(
-                _in_modules(prefix, (unsafe,))
-                or _in_modules(unsafe, (prefix,))
-                for unsafe in _UNSAFE_MODULES
-            ):
-                raise ValueError(
-                    'with_types refuses the module %r; use with_numpy() to'
-                    ' store arrays' % (entry,)
-                )
+            for unsafe in _UNSAFE_MODULES:
+                if _in_modules(prefix, (unsafe,)) or _in_modules(
+                    unsafe, (prefix,)
+                ):
+                    raise ValueError(
+                        'with_types refuses the module %r%s'
+                        % (entry, _unsafe_reason(unsafe))
+                    )
             prefixes.append(prefix)
 
         return _derive_disk(
@@ -933,7 +959,7 @@ class SafeDisk(Disk):
         value except in keys, and checks each header before it reads an
         array back. (Plain :class:`SafeDisk` refuses numpy pickles, because
         unpickling an array is not memory-safe.) numpy scalars keep their
-        type.
+        type, and arrays of ``datetime64`` and ``timedelta64`` are stored too.
         Object arrays, ``ndarray`` subclasses and other numpy scalars raise
         :exc:`TypeError` when written. It combines with :meth:`with_types`
         and :meth:`with_options` in any order.
@@ -966,22 +992,29 @@ class SafeDisk(Disk):
             return arrays.unpickler(self, file)
         return self._plain_unpickler(file)
 
-    def _extended(self):
-        return bool(self.safe_types or self.safe_modules)
-
     def _check_object(self, obj, what):
-        """Raise TypeError unless the reader would accept `obj` back."""
+        """Raise TypeError unless the reader would accept `obj` back.
+
+        Outside SAFE_TYPES, an object is accepted when its pickle looks up
+        only names the reader resolves, such as a dict subclass that pickles
+        as a plain dict, which is then what the reader builds.
+
+        """
         try:
             self._check(obj, what)
         except TypeError:
-            if not self._extended():
-                raise
+            pass
         else:
             return
 
-        self._check_pickle(
-            pickle.dumps(obj, protocol=self.pickle_protocol), obj, what
-        )
+        try:
+            data = pickle.dumps(obj, protocol=self.pickle_protocol)
+        except (pickle.PicklingError, AttributeError) as error:
+            raise TypeError(
+                'SafeDisk cannot store %s: %s' % (what, error)
+            ) from error
+
+        self._check_pickle(data, obj, what)
 
     def _check_pickle(self, data, obj, what):
         """Raise TypeError unless the reader would accept the pickle `data`."""
@@ -1002,16 +1035,37 @@ class SafeDisk(Disk):
             except pickle.UnpicklingError:
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s: it pickles'
-                    ' %s.%s, which the allowlist refuses; allow it with'
-                    ' SafeDisk.with_types()'
+                    ' %s.%s, which the allowlist refuses%s'
                     % (
                         what,
                         type(obj).__module__,
                         type(obj).__qualname__,
                         module,
                         name,
+                        self._refusal_hint(module, name),
                     )
                 ) from None
+
+    def _refusal_hint(self, module, name):
+        """Return how to store what pickles the refused `module`.`name`."""
+        if _in_modules(module, ('numpy',)):
+            if self.safe_numpy:
+                return '; with_numpy() stores only arrays and numpy scalars'
+            return '; store arrays with SafeDisk.with_numpy()'
+
+        for unsafe in _UNSAFE_MODULES:
+            if _in_modules(module, (unsafe,)):
+                return '; with_types() refuses %s classes' % unsafe
+
+        obj = sys.modules.get(module)
+        for part in name.split('.'):
+            obj = getattr(obj, part, None)
+
+        if not isinstance(obj, type):
+            return '; it is not a class, and with_types() allows only classes'
+        if module in ('builtins', '__builtin__'):
+            return ''
+        return '; allow it with SafeDisk.with_types()'
 
     def _check(self, obj, what):
         """Raise TypeError unless every object in `obj` is in SAFE_TYPES."""
@@ -1023,6 +1077,8 @@ class SafeDisk(Disk):
             type_item = type(item)
 
             if type_item not in SAFE_TYPES:
+                if isinstance(item, type) and item in _SAFE_CLASSES:
+                    continue
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s'
                     % (what, type_item.__module__, type_item.__qualname__)
@@ -1034,7 +1090,7 @@ class SafeDisk(Disk):
                 seen.add(id(item))
                 if type_item is co.defaultdict:
                     factory = item.default_factory
-                    if factory is not None and factory not in SAFE_TYPES:
+                    if factory is not None and factory not in _SAFE_CLASSES:
                         raise TypeError(
                             'SafeDisk cannot store %s with defaultdict'
                             ' factory %r' % (what, factory)
@@ -1996,8 +2052,12 @@ class Cache:
         cur = getattr(self._local, 'cur', None)
 
         if cur is None:
-            self._connect()
-            cur = self._local.cur
+            # Through _con, so a subclass that overrides it, to open another
+            # database file say, gets a cursor on that connection.
+            con = self._con
+            cur = getattr(self._local, 'cur', None)
+            if cur is None or cur.connection is not con:
+                cur = self._local.cur = con.cursor()
 
         return cur
 
