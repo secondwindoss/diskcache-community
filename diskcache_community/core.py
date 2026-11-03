@@ -943,7 +943,7 @@ class SafeDisk(Disk):
         value except in keys, and checks each header before it reads an
         array back. (Plain :class:`SafeDisk` refuses numpy pickles, because
         unpickling an array is not memory-safe.) numpy scalars keep their
-        type.
+        type, and arrays of ``datetime64`` and ``timedelta64`` are stored too.
         Object arrays, ``ndarray`` subclasses and other numpy scalars raise
         :exc:`TypeError` when written. It combines with :meth:`with_types`
         and :meth:`with_options` in any order.

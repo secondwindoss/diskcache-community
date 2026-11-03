@@ -187,6 +187,13 @@ def raw(header, body=b''):
         np.zeros((0, 3)),
         np.arange(4.0).reshape(2, 2).T,
         np.arange(3, dtype='>i4'),
+        # numpy exports no buffer for these, so the data goes as bytes.
+        np.array(['2026-01-01T00:00', 'NaT'], dtype='datetime64[ns]'),
+        np.arange(6).astype('datetime64[D]').reshape(2, 3).T,
+        np.array(np.datetime64('2026-01-01')),
+        np.arange(3).astype('>m8[s]'),
+        np.array([(1, 2)], dtype=[('a', 'i4'), ('t', 'M8[us]')]),
+        np.zeros(0, dtype='m8[ns]'),
     ],
     ids=lambda array: '%s-%s' % (array.dtype, array.shape),
 )
