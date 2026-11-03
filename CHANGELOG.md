@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.3 (2026-11-03)
+
+Fixes a regression from 5.8.2 and several `SafeDisk` issues found by testing downstream libraries, and updates the documentation. The `cache.db` schema and the file layout are unchanged.
 
 ### Security
 
