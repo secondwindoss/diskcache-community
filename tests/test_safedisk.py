@@ -141,7 +141,7 @@ UNSAFE_VALUES = [
     Custom,
     len,
     Poison,
-    object(),
+    lambda: None,
     Exception('boom'),
 ]
 
@@ -373,15 +373,54 @@ def test_typed_memoize(directory, disk):
         ]
 
 
-def test_refused_class_is_named(cache):
-    with pytest.raises(TypeError, match='holding the class builtins.NoneType'):
-        cache[(1, type(None))] = 1
+class PlainDict(dict):
+    """A dict subclass that pickles as a dict, as DRF's ReturnDict does."""
 
-    with pytest.raises(TypeError, match='holding the class builtins.bool'):
-        cache['key'] = [bool]
+    def __reduce__(self):
+        return dict, (dict(self),)
 
-    with pytest.raises(TypeError, match='defaultdict factory'):
-        cache['key'] = co.defaultdict(bool)
+
+@pytest.mark.parametrize(
+    'disk',
+    [dc.SafeDisk, dc.SafeDisk.with_types(), dc.SafeDisk.with_types(Custom)],
+)
+def test_objects_that_pickle_as_allowed_names_are_stored(directory, disk):
+    with dc.Cache(directory, disk=disk) as cache:
+        cache['dict'] = PlainDict(a=1)
+        cache[PlainDict(b=2).get('b')] = [PlainDict(c=3)]
+        cache['object'] = object()
+
+        assert cache['dict'] == {'a': 1}
+        assert type(cache['dict']) is dict
+        assert type(cache[2][0]) is dict
+        assert type(cache['object']) is object
+
+
+def test_refusal_messages(cache):
+    def refusal(value):
+        with pytest.raises(TypeError, match='SafeDisk cannot store') as info:
+            cache['key'] = value
+        return str(info.value)
+
+    assert refusal(Custom()).endswith(
+        'it pickles %s.Custom, which the allowlist refuses; allow it with'
+        ' SafeDisk.with_types()' % __name__
+    )
+    assert refusal(_execute).endswith(
+        'it pickles %s._execute, which the allowlist refuses; it is not a'
+        ' class, and with_types() allows only classes' % __name__
+    )
+    assert refusal((1, type(None))).endswith(
+        'it pickles builtins.type, which the allowlist refuses'
+    )
+    assert refusal([bool]).endswith(
+        'it pickles builtins.bool, which the allowlist refuses'
+    )
+    assert refusal(co.defaultdict(bool)).endswith(
+        'it pickles builtins.bool, which the allowlist refuses'
+    )
+    assert refusal(lambda: None).startswith('SafeDisk cannot store value: ')
+    assert len(cache) == 0
 
 
 def test_read_values_untouched(cache):

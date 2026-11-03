@@ -116,9 +116,13 @@ def _pack_array(numpy, array):
         header = buffer.getvalue()
         _read_header(numpy, header, array.nbytes)
     except (ValueError, pickle.UnpicklingError) as error:
-        raise TypeError(
-            'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
-        ) from error
+        message = 'SafeDisk cannot store an array of dtype %s' % (array.dtype,)
+        if array.dtype.hasobject:
+            message += (
+                '; a pandas DataFrame holds its labels and text columns in'
+                ' such arrays, so store its records or columns instead'
+            )
+        raise TypeError(message) from error
 
     data = array.reshape(-1, order='A').view(numpy.uint8)
     return header, pickle.PickleBuffer(data)

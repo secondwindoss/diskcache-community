@@ -917,6 +917,34 @@ def test_safedisk_still_refuses_numpy(directory):
         assert len(cache) == 0
 
 
+@pytest.mark.parametrize(
+    'disk', [dc.SafeDisk, dc.SafeDisk.with_types(co.UserDict)]
+)
+def test_numpy_refusals_point_to_with_numpy(directory, disk):
+    with dc.Cache(directory, disk=disk) as cache:
+        for value in (np.arange(2.0), np.dtype('f8'), [np.float64(1.5)]):
+            with pytest.raises(TypeError) as info:
+                cache['key'] = value
+            assert str(info.value).endswith(
+                'store arrays with SafeDisk.with_numpy()'
+            )
+
+
+def test_with_numpy_refusal_of_other_numpy_objects(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError) as info:
+            cache['key'] = {'dtype': np.dtype('f8')}
+    assert str(info.value).endswith(
+        'with_numpy() stores only arrays and numpy scalars'
+    )
+
+
+def test_object_array_refusal_mentions_dataframes(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='DataFrame .* records'):
+            cache['key'] = np.array(['a', None], dtype=object)
+
+
 def test_safejsondisk_refuses_with_numpy():
     with pytest.raises(TypeError, match='SafeJSONDisk'):
         dc.SafeJSONDisk.with_numpy()

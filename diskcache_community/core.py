@@ -557,9 +557,11 @@ SAFE_PICKLE_NAMES = {
     'uuid': frozenset({'UUID'}),
 }
 
-# Python types that SafeDisk accepts for writing: exactly the types that the
-# names above read back. Subclasses are rejected because pickle records the
-# subclass, which the reader would refuse.
+# Python types that SafeDisk accepts for writing without pickling them first:
+# exactly the types that the names above read back. Anything else is pickled
+# and accepted only if the reader resolves every name the pickle looks up, so
+# a subclass is refused, because pickle records the subclass, unless it
+# pickles as one of these types.
 
 SAFE_TYPES = frozenset(
     {
@@ -976,22 +978,29 @@ class SafeDisk(Disk):
             return arrays.unpickler(self, file)
         return self._plain_unpickler(file)
 
-    def _extended(self):
-        return bool(self.safe_types or self.safe_modules)
-
     def _check_object(self, obj, what):
-        """Raise TypeError unless the reader would accept `obj` back."""
+        """Raise TypeError unless the reader would accept `obj` back.
+
+        Outside SAFE_TYPES, an object is accepted when its pickle looks up
+        only names the reader resolves, such as a dict subclass that pickles
+        as a plain dict, which is then what the reader builds.
+
+        """
         try:
             self._check(obj, what)
         except TypeError:
-            if not self._extended():
-                raise
+            pass
         else:
             return
 
-        self._check_pickle(
-            pickle.dumps(obj, protocol=self.pickle_protocol), obj, what
-        )
+        try:
+            data = pickle.dumps(obj, protocol=self.pickle_protocol)
+        except (pickle.PicklingError, AttributeError) as error:
+            raise TypeError(
+                'SafeDisk cannot store %s: %s' % (what, error)
+            ) from error
+
+        self._check_pickle(data, obj, what)
 
     def _check_pickle(self, data, obj, what):
         """Raise TypeError unless the reader would accept the pickle `data`."""
@@ -1012,16 +1021,37 @@ class SafeDisk(Disk):
             except pickle.UnpicklingError:
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s: it pickles'
-                    ' %s.%s, which the allowlist refuses; allow it with'
-                    ' SafeDisk.with_types()'
+                    ' %s.%s, which the allowlist refuses%s'
                     % (
                         what,
                         type(obj).__module__,
                         type(obj).__qualname__,
                         module,
                         name,
+                        self._refusal_hint(module, name),
                     )
                 ) from None
+
+    def _refusal_hint(self, module, name):
+        """Return how to store what pickles the refused `module`.`name`."""
+        if _in_modules(module, ('numpy',)):
+            if self.safe_numpy:
+                return '; with_numpy() stores only arrays and numpy scalars'
+            return '; store arrays with SafeDisk.with_numpy()'
+
+        for unsafe in _UNSAFE_MODULES:
+            if _in_modules(module, (unsafe,)):
+                return '; with_types() cannot allow %s' % unsafe
+
+        obj = sys.modules.get(module)
+        for part in name.split('.'):
+            obj = getattr(obj, part, None)
+
+        if not isinstance(obj, type):
+            return '; it is not a class, and with_types() allows only classes'
+        if module in ('builtins', '__builtin__'):
+            return ''
+        return '; allow it with SafeDisk.with_types()'
 
     def _check(self, obj, what):
         """Raise TypeError unless every object in `obj` is in SAFE_TYPES."""
@@ -1033,13 +1063,8 @@ class SafeDisk(Disk):
             type_item = type(item)
 
             if type_item not in SAFE_TYPES:
-                if isinstance(item, type):
-                    if item in _SAFE_CLASSES:
-                        continue
-                    raise TypeError(
-                        'SafeDisk cannot store %s holding the class %s.%s'
-                        % (what, item.__module__, item.__qualname__)
-                    )
+                if isinstance(item, type) and item in _SAFE_CLASSES:
+                    continue
                 raise TypeError(
                     'SafeDisk cannot store %s of type %s.%s'
                     % (what, type_item.__module__, type_item.__qualname__)
