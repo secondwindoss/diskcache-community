@@ -607,11 +607,23 @@ _SAFE_MAPPINGS = (dict, co.Counter, co.OrderedDict, co.defaultdict)
 _SAFE_SEQUENCES = (list, tuple, set, frozenset, co.deque)
 _SAFE_TZ_TYPES = (type(None), dt.timezone)
 
-# Packages whose classes SafeDisk.with_types refuses to allow. numpy restores
-# the internal flags of a dtype from its pickle without checking them, so a
-# crafted pickle can make an array read raw bytes as object pointers.
+# Packages whose classes SafeDisk.with_types refuses to allow, because a
+# crafted pickle of one can corrupt memory or run code. numpy restores the
+# internal flags of a dtype from its pickle without checking them, so a
+# crafted pickle can make an array read raw bytes as object pointers. scipy's
+# sparse matrices and pyahocorasick's automatons keep index data that their
+# compiled code trusts, bitstruct's compiled formats crash on state they did
+# not build, and torch builds some objects by compiling or running code.
 
-_UNSAFE_MODULES = ('numpy',)
+_UNSAFE_MODULES = ('numpy', 'ahocorasick', 'bitstruct', 'scipy', 'torch')
+
+
+def _unsafe_reason(package):
+    """Return why with_types refuses classes of the unsafe `package`."""
+    if package == 'numpy':
+        return '; use with_numpy() to store arrays'
+    return ': a crafted pickle of a %s object is not safe to read' % package
+
 
 _PICKLE_STRING_OPS = frozenset(
     {'BINUNICODE', 'BINUNICODE8', 'SHORT_BINUNICODE', 'UNICODE'}
@@ -880,7 +892,9 @@ class SafeDisk(Disk):
         do nothing beyond storing their fields, such as dataclasses, named
         tuples, enums and pydantic models. Reading looks classes up only in
         modules that are already imported, so import them before reading.
-        numpy classes are refused; use :meth:`with_numpy` to store arrays.
+        Classes of numpy, scipy, torch, bitstruct and pyahocorasick are
+        refused, because a crafted pickle of one can corrupt memory or run
+        code; use :meth:`with_numpy` to store arrays.
 
         >>> import collections
         >>> Point = collections.namedtuple('Point', 'x y')
@@ -894,17 +908,18 @@ class SafeDisk(Disk):
         :return: SafeDisk subclass to pass as ``disk=``
         :raises TypeError: if an entry of `types` is not a class
         :raises ValueError: if an entry of `modules` is not a module name, or
-            a type or module is numpy (arrays belong to :meth:`with_numpy`)
+            a type or module belongs to one of those packages
 
         """
         for entry in types:
             if not isinstance(entry, type):
                 raise TypeError('with_types takes classes, not %r' % (entry,))
-            if _in_modules(entry.__module__, _UNSAFE_MODULES):
-                raise ValueError(
-                    'with_types refuses the class %r; use with_numpy() to'
-                    ' store arrays' % (entry,)
-                )
+            for unsafe in _UNSAFE_MODULES:
+                if _in_modules(entry.__module__, (unsafe,)):
+                    raise ValueError(
+                        'with_types refuses the class %r%s'
+                        % (entry, _unsafe_reason(unsafe))
+                    )
 
         if isinstance(modules, str):
             modules = (modules,)
@@ -915,15 +930,14 @@ class SafeDisk(Disk):
                 part.isidentifier() for part in prefix.split('.')
             ):
                 raise ValueError('%r is not a module name' % (entry,))
-            if any(
-                _in_modules(prefix, (unsafe,))
-                or _in_modules(unsafe, (prefix,))
-                for unsafe in _UNSAFE_MODULES
-            ):
-                raise ValueError(
-                    'with_types refuses the module %r; use with_numpy() to'
-                    ' store arrays' % (entry,)
-                )
+            for unsafe in _UNSAFE_MODULES:
+                if _in_modules(prefix, (unsafe,)) or _in_modules(
+                    unsafe, (prefix,)
+                ):
+                    raise ValueError(
+                        'with_types refuses the module %r%s'
+                        % (entry, _unsafe_reason(unsafe))
+                    )
             prefixes.append(prefix)
 
         return _derive_disk(
@@ -1041,7 +1055,7 @@ class SafeDisk(Disk):
 
         for unsafe in _UNSAFE_MODULES:
             if _in_modules(module, (unsafe,)):
-                return '; with_types() cannot allow %s' % unsafe
+                return '; with_types() refuses %s classes' % unsafe
 
         obj = sys.modules.get(module)
         for part in name.split('.'):

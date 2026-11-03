@@ -154,8 +154,9 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
 .. data:: diskcache_community.core._UNSAFE_MODULES
 
    Packages whose classes :meth:`SafeDisk.with_types
-   <diskcache_community.SafeDisk.with_types>` refuses to allow, because
-   unpickling them is not memory-safe.
+   <diskcache_community.SafeDisk.with_types>` refuses to allow, because a
+   crafted pickle of one can corrupt memory or run code: numpy, scipy, torch,
+   bitstruct and pyahocorasick.
 
 SafeJSONDisk
 ------------
