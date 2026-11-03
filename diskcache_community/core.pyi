@@ -8,6 +8,7 @@ from typing import (
     Final,
     Generator,
     Generic,
+    Iterable,
     Literal,
     NoReturn,
     overload,
@@ -192,7 +193,7 @@ class SafeDisk(Disk):
     safe_numpy: bool
     @classmethod
     def with_types(
-        cls, *types: type, modules: tuple[str, ...] = ...
+        cls, *types: type, modules: str | Iterable[str] = ...
     ) -> type[Self]: ...
     @classmethod
     def with_numpy(cls) -> type[Self]: ...
