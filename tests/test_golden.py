@@ -125,3 +125,59 @@ def test_current_code_writes_what_563_reads(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'diskcache %s' % recipe.WHEEL_VERSION in result.stdout
+
+
+def _execute(path):
+    """Marker that a pickle ran code: it creates `path`."""
+    with open(path, 'w', encoding='utf-8') as writer:
+        writer.write('executed')
+
+
+class _Poison:
+    def __init__(self, path):
+        self.path = path
+
+    def __reduce__(self):
+        return (_execute, (self.path,))
+
+
+READ_SIGNED_ROWS = """
+import os, pickle, sys
+import diskcache
+directory, marker = sys.argv[1:]
+with diskcache.Cache(directory) as cache:
+    for key in ('inline', 'file'):
+        try:
+            cache[key]
+        except pickle.UnpicklingError as error:
+            print(key, 'raised', error)
+print('marker', os.path.exists(marker))
+"""
+
+
+def test_563_raises_on_rows_a_signing_disk_wrote(tmp_path):
+    python = os.environ.get(REVERSE_PYTHON)
+    if not python:
+        pytest.skip('%s is not set' % REVERSE_PYTHON)
+
+    import diskcache_community as dc
+
+    directory = str(tmp_path / 'signed')
+    marker = str(tmp_path / 'marker')
+    disk = dc.SafeDisk.with_signing(tmp_path / 'signing.key')
+    for key, size in (('inline', 2**20), ('file', 0)):
+        with dc.Cache(directory, disk=disk, disk_min_file_size=size) as cache:
+            cache[key] = _Poison(marker)
+
+    result = sp.run(
+        [python, '-I', '-c', READ_SIGNED_ROWS, directory, marker],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "inline raised invalid load key, '\\xff'." in result.stdout
+    assert "file raised invalid load key, '\\xff'." in result.stdout
+    assert 'marker False' in result.stdout
+    assert not op.exists(marker)

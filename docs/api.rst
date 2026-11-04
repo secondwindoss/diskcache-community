@@ -158,6 +158,13 @@ Read the :ref:`SafeDisk tutorial <tutorial-safedisk>` for details.
    crafted pickle of one can corrupt memory or run code: numpy, scipy, torch,
    bitstruct and pyahocorasick.
 
+.. data:: diskcache_community.signing.ENV_KEY_FILE
+
+   ``'DISKCACHE_SIGNING_KEY_FILE'``, the environment variable that names the
+   default key file of :meth:`SafeDisk.with_signing
+   <diskcache_community.SafeDisk.with_signing>`. Read the :ref:`signing
+   tutorial <tutorial-signing>` for details.
+
 SafeJSONDisk
 ------------
 

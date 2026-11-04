@@ -862,7 +862,8 @@ class SafeDisk(Disk):
 
     Objects outside the allowlist, such as instances of your own classes and
     Django model instances and responses, need either the default
-    :class:`Disk` or a disk from :meth:`with_types` that allows them. The
+    :class:`Disk`, a disk from :meth:`with_types` that allows them, or a disk
+    from :meth:`with_signing`, which signs what it writes instead. The
     allowed classes themselves can be stored too, so ``memoize(typed=True)``
     works.
 
@@ -871,10 +872,22 @@ class SafeDisk(Disk):
     safe_types: frozenset = frozenset()
     safe_modules: tuple = ()
     safe_numpy: bool = False
+    signing = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # A subclass of a signing disk is passed key= too, so an override of
+        # fetch that cannot take it fails here rather than on the first read.
+        if cls.signing is not None:
+            signing.check_fetch(cls)
 
     def __init__(self, directory, min_file_size=0, pickle_protocol=0):
         super().__init__(directory, min_file_size, pickle_protocol)
         self._real_directory = op.realpath(directory)
+        if self.signing is not None:
+            self._signing_key, self._signing_path = self.signing.load(
+                directory
+            )
 
     @classmethod
     def with_types(cls, *types, modules=()):
@@ -974,9 +987,58 @@ class SafeDisk(Disk):
         True
 
         :return: SafeDisk subclass to pass as ``disk=``
+        :raises TypeError: if the class signs entries (:meth:`with_signing`)
 
         """
+        if cls.signing is not None:
+            raise TypeError(signing.NUMPY_REFUSED)
         return _derive_disk(cls, {'safe_numpy': True})
+
+    @classmethod
+    def with_signing(cls, key_file=None, *, key=None):
+        """Return a SafeDisk subclass that signs the values it pickles.
+
+        Every value the returned class pickles is stored as a full pickle
+        with an HMAC-SHA256 tag over the pickle and the cache key, and the
+        tag is checked before anything is unpickled. A pickled value without
+        a tag, or whose tag does not match, raises
+        :exc:`pickle.UnpicklingError`, which ``on_error='miss'`` treats as a
+        miss. Values that are stored without pickling, such as ``str`` and
+        ``int``, are stored as on every disk, and keys stay on the allowlist.
+
+        The key is read from `key_file`, which is created with a new random
+        key if it is missing, or from the default key file when neither
+        argument is given: ``$DISKCACHE_SIGNING_KEY_FILE``, or
+        ``signing.key`` in a folder ``diskcache-community`` of the user's
+        local data directory. Opening a cache raises :exc:`ValueError` when
+        the key file is inside the cache directory or, on POSIX, when other
+        users can write it, or read it unless it belongs to root. `key` takes
+        the key itself, at least 32 random bytes, kept only in memory; a
+        cache that uses it cannot be pickled. Every other disk, and
+        diskcache 5.6.3, raises :exc:`pickle.UnpicklingError` on the pickled
+        rows a signing disk writes. It combines with :meth:`with_types`,
+        which then widens only what keys may hold, and with
+        :meth:`with_options`.
+
+        >>> import secrets
+        >>> KeyDisk = SafeDisk.with_signing(key=secrets.token_bytes(32))
+        >>> KeyDisk.signing  # doctest: +ELLIPSIS
+        <in-memory key ...>
+
+        :param key_file: path of the key file (default None, the default key
+            file)
+        :param bytes key: the key, instead of a key file
+        :return: SafeDisk subclass to pass as ``disk=``
+        :raises TypeError: if both `key_file` and `key` are given, if `key`
+            is not bytes, if the class stores numpy arrays
+            (:meth:`with_numpy`), or if its ``fetch`` does not accept the
+            keyword argument ``key``
+        :raises ValueError: if `key` is shorter than 32 bytes
+
+        """
+        return _derive_disk(
+            cls, {'signing': signing.source(cls, key_file, key)}
+        )
 
     def _plain_unpickler(self, file):
         return SafeUnpickler(
@@ -1142,9 +1204,14 @@ class SafeDisk(Disk):
             )
 
     def put(self, key):
-        # pylint: disable=unidiomatic-typecheck
+        # pylint: disable=unidiomatic-typecheck,comparison-with-itself
         if type(key) not in (bytes, str, int, float):
             self._check_object(key, 'key')
+        elif self.signing is not None and key != key:
+            raise TypeError(
+                'SafeDisk.with_signing() cannot store a NaN key, which SQLite'
+                ' stores as NULL'
+            )
         return super().put(key)
 
     def get(self, key, raw):
@@ -1155,6 +1222,10 @@ class SafeDisk(Disk):
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck
+        if self.signing is not None and not (
+            read or signing.stored_raw(value)
+        ):
+            return signing.store(self, value, key)
         if read or type(value) in (bytes, str, int, float):
             return super().store(value, read, key=key)
         numpy = sys.modules.get('numpy') if self.safe_numpy else None
@@ -1163,15 +1234,25 @@ class SafeDisk(Disk):
         self._check_object(value, 'value')
         return super().store(value, read, key=key)
 
-    def fetch(self, mode, filename, value, read):
+    def fetch(self, mode, filename, value, read, key=None):
+        """Convert fields `mode`, `filename`, and `value` from Cache table to
+        value. A signing disk (:meth:`with_signing`) is also given the row's
+        `key`, a ``(db_key, raw)`` pair, and refuses a signed row without
+        it."""
         if filename is not None:
             self._confine(filename)
 
         if mode == MODE_PICKLE:
+            if self.signing is not None:
+                return signing.fetch(self, filename, value, key)
             if value is None:
                 with super().fetch(MODE_BINARY, filename, None, True) as file:
                     return self._unpickler(file).load()
-            return self._unpickler(io.BytesIO(value)).load()
+            try:
+                return self._unpickler(io.BytesIO(value)).load()
+            except pickle.UnpicklingError:
+                signing.refuse_signed(value)
+                raise
 
         return super().fetch(mode, filename, value, read)
 
@@ -1203,6 +1284,13 @@ class SafeJSONDisk(JSONDisk, SafeDisk):
     @classmethod
     def with_numpy(cls):
         raise TypeError('SafeJSONDisk stores only JSON, not numpy arrays')
+
+    @classmethod
+    def with_signing(cls, key_file=None, *, key=None):
+        # pylint: disable=unused-argument
+        raise TypeError(
+            'SafeJSONDisk never pickles a value, so it has none to sign'
+        )
 
     def get(self, key, raw):
         if not raw:
@@ -1702,7 +1790,7 @@ if hasattr(os, 'register_at_fork'):
     )
 
 
-class Cache:
+class Cache:  # pylint: disable=too-many-instance-attributes
     """Disk and file backed cache."""
 
     def __init__(
@@ -1818,6 +1906,11 @@ class Cache:
             if key.startswith('disk_')
         }
         self._disk = disk(directory, **kwargs)
+        # A signing disk checks the cache key of each row it reads. Only a
+        # SafeDisk signs, whatever other disks name their attributes.
+        self._fetch_with_key = (
+            isinstance(self._disk, SafeDisk) and self._disk.signing is not None
+        )
 
         self._init_settings(sql, sets, current_settings)
 
@@ -2761,6 +2854,10 @@ class Cache:
             mode, filename, db_value = row
 
             try:
+                if self._fetch_with_key:
+                    return self._disk.fetch(
+                        mode, filename, db_value, read, key=(db_key, raw)
+                    )
                 return self._disk.fetch(mode, filename, db_value, read)
             except IOError:
                 # Key was deleted before we could retrieve result.
@@ -2819,7 +2916,12 @@ class Cache:
                 db_store_time = None
 
             try:
-                value = self._disk.fetch(mode, filename, db_value, read)
+                if self._fetch_with_key:
+                    value = self._disk.fetch(
+                        mode, filename, db_value, read, key=(db_key, raw)
+                    )
+                else:
+                    value = self._disk.fetch(mode, filename, db_value, read)
             except IOError:
                 # Key was deleted before we could retrieve result.
                 return default
@@ -2871,7 +2973,14 @@ class Cache:
                     db_store_time = None
 
                 try:
-                    value = self._disk.fetch(mode, filename, db_value, read)
+                    if self._fetch_with_key:
+                        value = self._disk.fetch(
+                            mode, filename, db_value, read, key=(db_key, raw)
+                        )
+                    else:
+                        value = self._disk.fetch(
+                            mode, filename, db_value, read
+                        )
                 except IOError:
                     # Key was deleted before we could retrieve result.
                     if statistics:
@@ -2997,7 +3106,12 @@ class Cache:
             sql('DELETE FROM Cache WHERE rowid = ?', (rowid,))
 
         try:
-            value = self._disk.fetch(mode, filename, db_value, False)
+            if self._fetch_with_key:
+                value = self._disk.fetch(
+                    mode, filename, db_value, False, key=(db_key, raw)
+                )
+            else:
+                value = self._disk.fetch(mode, filename, db_value, False)
         except IOError:
             # Key was deleted before we could retrieve result.
             return default
@@ -3168,6 +3282,12 @@ class Cache:
             else:
                 db_key = num
 
+            if self._fetch_with_key:
+                # The disk hashed the value before the transaction, so only
+                # the key chosen here is added to its tag.
+                db_value = signing.finish(db_value, (db_key, raw))
+                columns = columns[:-1] + (db_value,)
+
             self._row_insert(db_key, raw, now, columns)
             self._cull(now, sql, cleanup)
 
@@ -3275,7 +3395,12 @@ class Cache:
                         break
 
             try:
-                value = self._disk.fetch(mode, name, db_value, False)
+                if self._fetch_with_key:
+                    value = self._disk.fetch(
+                        mode, name, db_value, False, key=(key, True)
+                    )
+                else:
+                    value = self._disk.fetch(mode, name, db_value, False)
             except IOError:
                 # Key was deleted before we could retrieve result.
                 continue
@@ -3398,7 +3523,12 @@ class Cache:
                         break
 
             try:
-                value = self._disk.fetch(mode, name, db_value, False)
+                if self._fetch_with_key:
+                    value = self._disk.fetch(
+                        mode, name, db_value, False, key=(key, True)
+                    )
+                else:
+                    value = self._disk.fetch(mode, name, db_value, False)
             except IOError:
                 # Key was deleted before we could retrieve result.
                 continue
@@ -3483,7 +3613,12 @@ class Cache:
 
             try:
                 key = self._disk.get(db_key, raw)
-                value = self._disk.fetch(mode, name, db_value, False)
+                if self._fetch_with_key:
+                    value = self._disk.fetch(
+                        mode, name, db_value, False, key=(db_key, raw)
+                    )
+                else:
+                    value = self._disk.fetch(mode, name, db_value, False)
             except IOError:
                 # Key was deleted before we could retrieve result.
                 continue
@@ -4228,6 +4363,7 @@ class Cache:
         return value
 
 
-# arrays imports the classes above, so it is imported once they exist.
+# arrays and signing import the classes above, so they are imported once they
+# exist.
 # pylint: disable=wrong-import-position,cyclic-import
-from . import arrays  # noqa: E402  # isort: skip
+from . import arrays, signing  # noqa: E402  # isort: skip

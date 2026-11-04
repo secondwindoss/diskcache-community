@@ -14,10 +14,12 @@ from .core import (
     ENOVAL,
     Cache,
     Timeout,
+    _makedirs_private,
     _meta_result,
     default_disk,
 )
 from .persistent import Deque, Index
+from .signing import check_key_location
 
 
 def _default_with_meta(default, expire_time, tag, store_time=False):
@@ -57,6 +59,14 @@ class FanoutCache:
 
         default_size_limit = DEFAULT_SETTINGS['size_limit']
         size_limit = settings.pop('size_limit', default_size_limit) / shards
+
+        # Each shard's disk checks the key file against the shard's
+        # directory only, so check it against this one before any shard can
+        # create it here.
+        if not op.isdir(directory):
+            with cl.suppress(OSError):
+                _makedirs_private(op.abspath(directory))
+        check_key_location(disk, directory)
 
         self._count = shards
         self._directory = directory
