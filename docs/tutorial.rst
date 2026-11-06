@@ -1294,9 +1294,9 @@ both keys and values. Unfortunately, pickling produces inconsistencies
 sometimes when applied to container data types like tuples. Two equal tuples
 may serialize to different bytes objects using pickle. The likelihood of
 differences is reduced by using `pickletools.optimize` but still
-inconsistencies occur (`#54`_). The inconsistent serialized pickle values is
-particularly problematic when applied to the key in the cache. Consider using
-an alternative Disk type, like :class:`JSONDisk
+inconsistencies occur (upstream issue 54). The inconsistent serialized pickle
+values is particularly problematic when applied to the key in the cache.
+Consider using an alternative Disk type, like :class:`JSONDisk
 <diskcache_community.JSONDisk>`, for consistent serialization of keys.
 
 SQLite is used to synchronize database access between threads and processes and
