@@ -2,18 +2,19 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.4 (2026-11-05)
+
+Extends `SafeDisk.with_numpy()` to numpy data in keys and to more numpy types in values, and fixes the data stored for short-lived array views. The `cache.db` schema and the file layout are unchanged, and entries 5.8.3 could store are written byte for byte as before.
 
 ### Changes
 
-- `SafeDisk.with_numpy()` keeps the `.npy` headers it has parsed or written, so reading an array no longer parses its header each time. A hit on a 384-value float32 array takes about as long as a pickle with the default `Disk`, where it took about three times as long, and a write is about 30% faster. Each header is still checked against the size of the data, and the stored format is unchanged, so 5.8.2 and 5.8.3 read the new entries and the other way round.
-- `SafeDisk.with_numpy()` accepts numpy booleans, integers, floats, complex numbers, strings and bytes in keys, also inside tuples, lists, dicts, sets and frozensets, and stores them as the Python values `item()` gives, so `int64(1)` and `1` name the same entry. They raised `TypeError`.
-- `SafeDisk.with_numpy()` accepts arrays in keys, alone or inside tuples and lists, and as `memoize` arguments. Every array in a key is stored in C order, so an equal array of the same dtype and shape names the same entry. A key without numpy keeps the bytes earlier versions wrote.
-- `SafeDisk.with_numpy()` stores `datetime64` and `timedelta64` scalars with their unit, arrays of objects element by element (each element checked like any value), record arrays and masked arrays with their type, and memory maps as the plain array of their data. They raised `TypeError`. These entries, and keys holding numpy data, read as unreadable on 5.8.3 and earlier.
+- `SafeDisk.with_numpy()` accepts numpy booleans, integers, floats, complex numbers, strings and bytes in keys, also inside tuples, lists, dicts, sets and frozensets, and stores them as the Python values `item()` gives, so `int64(1)` and `1` name the same entry. They raised `TypeError` (PR #47).
+- `SafeDisk.with_numpy()` accepts arrays in keys, alone or inside other keys, and as `memoize` arguments. Every array in a key is stored in C order, so an equal array of the same dtype and shape names the same entry; another dtype, shape or time unit names another one. A key without numpy keeps the bytes earlier versions wrote (PR #47).
+- `SafeDisk.with_numpy()` stores `datetime64` and `timedelta64` scalars with their unit, arrays of objects element by element (each element checked like any value), record arrays and masked arrays with their type, and memory maps as the plain array of their data. They raised `TypeError`. A time unit with a multiple of more than nine digits still raises `TypeError`. These entries, and keys holding numpy data, read as unreadable on 5.8.3 and earlier (PR #47).
 
 ### Fixes
 
-- `SafeDisk.with_numpy()` stores each short-lived array a value hands to pickle with its own data. A value whose pickling made temporary views of one array, such as an object whose `__reduce__` yields slices, could be stored with one view's data in place of later ones, which then read back wrong. Affected 5.8.2 and 5.8.3.
+- `SafeDisk.with_numpy()` stores each short-lived array a value hands to pickle with its own data. A value whose pickling made temporary views of one array, such as an object whose `__reduce__` yields slices, could be stored with one view's data in place of later ones, which then read back wrong. Affected 5.8.2 and 5.8.3 (PR #47).
 
 ## 5.8.3 (2026-11-03)
 
