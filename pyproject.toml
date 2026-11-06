@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "diskcache-community"
 dynamic = ["version"]
-description = "Disk Cache -- Disk and file backed persistent cache."
+description = "Disk Cache - Disk and file backed persistent cache."
 readme = "README.md"
 requires-python = ">=3.8"
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
-authors = [{ name = "Grant Jenks" }]
-maintainers = [{ name = "diskcache-community contributors" }]
+license-files = ["LICENSE"]
+authors = [{ name = "August V." }]
+maintainers = [{ name = "August V." }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -33,7 +33,6 @@ Homepage = "https://github.com/secondwindoss/diskcache-community"
 Documentation = "https://diskcache-community.readthedocs.io/"
 Source = "https://github.com/secondwindoss/diskcache-community"
 Tracker = "https://github.com/secondwindoss/diskcache-community/issues"
-Upstream = "https://github.com/grantjenks/python-diskcache"
 
 [tool.setuptools]
 packages = ["diskcache_community"]

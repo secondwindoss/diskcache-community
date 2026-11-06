@@ -1095,16 +1095,42 @@ in numpy's ``.npy`` format:
 * A value outside the standard-library types is pickled at protocol 5 or
   higher, whatever ``disk_pickle_protocol`` says, so that array data can be
   stored in place. Other values use the configured protocol.
-* numpy booleans, integers, floats, complex numbers and strings read back as
-  the same numpy type with the same value, including NaN.
-* Arrays of objects, subclasses of ``ndarray`` such as masked arrays and
-  ``numpy.matrix``, ``datetime64`` and ``timedelta64`` scalars, and arrays that
-  the reader would refuse, such as a dtype with no width, raise
-  :exc:`TypeError` when written.
+* numpy booleans, integers, floats, complex numbers, strings and bytes read
+  back as the same numpy type with the same value, including NaN.
+  ``datetime64`` and ``timedelta64`` scalars read back with the same unit,
+  including ``NaT``; a unit with a multiple of more than nine digits, such as
+  ``1000000000s``, raises :exc:`TypeError`.
+* An array of objects (``dtype=object``), such as a pandas text column from
+  ``to_numpy()``, is stored element by element and reads back in C order.
+  Each element is checked like any value, so an element of a class outside
+  the allowlist raises :exc:`TypeError`. A value holding an array of objects
+  is read back once before it is stored, which makes writing it slower.
+* Record arrays (``numpy.recarray``) and masked arrays
+  (``numpy.ma.MaskedArray``, with their mask, fill value and hard mask, but
+  not other state numpy keeps on them) read back with their type.
+  ``DataFrame.to_records()`` gives a record array, but one with object fields
+  for a frame with text columns, which is refused: store the columns instead.
+  A memory map (``numpy.memmap``) is stored as the plain array of its data and
+  reads back as a plain array.
+* Other subclasses of ``ndarray``, such as ``numpy.matrix``, arrays with
+  object fields, other numpy scalars and arrays that the reader would refuse,
+  such as a dtype with no width, raise :exc:`TypeError` when written.
 
-Keys behave as in :class:`SafeDisk <diskcache_community.SafeDisk>`, so numpy
-values in a key raise :exc:`TypeError`, including the arguments of a function
-decorated with :meth:`memoize <diskcache_community.Cache.memoize>`.
+Keys can hold numpy data too. numpy booleans, integers, floats, complex
+numbers, strings and bytes, also inside tuples, lists, dicts, sets and
+frozensets, become the Python values ``item()`` gives, so ``int64(1)`` and
+``1``, which compare equal, name the same entry, and a function decorated with
+:meth:`memoize <diskcache_community.Cache.memoize>` hits for either argument.
+Arrays and the other numpy objects above are stored in a key as in a value,
+with every array in C order: an equal array of the same dtype and shape names
+the same entry, in either memory order, while the same numbers in another
+dtype or shape name another one, and so do equal times in another unit. As
+with any pickled key, a key that holds one object twice, such as ``(a, a)``,
+names another entry than one holding two equal objects, ``(a, a.copy())``. A
+key without numpy is stored exactly as a plain :class:`SafeDisk
+<diskcache_community.SafeDisk>` stores it. numpy arguments with
+``memoize(typed=True)`` raise :exc:`TypeError`, since the key then holds
+numpy's classes.
 
 Everything else behaves as in :class:`SafeDisk
 <diskcache_community.SafeDisk>`, and ``with_options(on_error='miss')`` works
@@ -1268,9 +1294,9 @@ both keys and values. Unfortunately, pickling produces inconsistencies
 sometimes when applied to container data types like tuples. Two equal tuples
 may serialize to different bytes objects using pickle. The likelihood of
 differences is reduced by using `pickletools.optimize` but still
-inconsistencies occur (`#54`_). The inconsistent serialized pickle values is
-particularly problematic when applied to the key in the cache. Consider using
-an alternative Disk type, like :class:`JSONDisk
+inconsistencies occur (upstream issue 54). The inconsistent serialized pickle
+values is particularly problematic when applied to the key in the cache.
+Consider using an alternative Disk type, like :class:`JSONDisk
 <diskcache_community.JSONDisk>`, for consistent serialization of keys.
 
 SQLite is used to synchronize database access between threads and processes and
@@ -1305,7 +1331,6 @@ files. It does not account the size of directories themselves or other
 filesystem metadata. If directory count or size is a concern then consider
 implementing an alternative :class:`Disk <diskcache_community.Disk>`.
 
-.. _`#54`: https://github.com/grantjenks/python-diskcache/issues/54
 .. _`hash protocol`: https://docs.python.org/library/functions.html#hash
 .. _`not recommended`: https://www.sqlite.org/faq.html#q5
 .. _`performs poorly`: https://www.pythonanywhere.com/forums/topic/1847/

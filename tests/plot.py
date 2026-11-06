@@ -1,6 +1,5 @@
 """Plot Benchmarks for docs
 
-$ export PYTHONPATH=/Users/grantj/repos/python-diskcache
 $ python tests/plot.py --show tests/timings_core_p1.txt
 """
 

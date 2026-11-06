@@ -2,6 +2,19 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Changes
+
+- `SafeDisk.with_numpy()` keeps the `.npy` headers it has parsed or written, so reading an array no longer parses its header each time. A hit on a 384-value float32 array takes about as long as a pickle with the default `Disk`, where it took about three times as long, and a write is about 30% faster. Each header is still checked against the size of the data, and the stored format is unchanged, so 5.8.2 and 5.8.3 read the new entries and the other way round.
+- `SafeDisk.with_numpy()` accepts numpy booleans, integers, floats, complex numbers, strings and bytes in keys, also inside tuples, lists, dicts, sets and frozensets, and stores them as the Python values `item()` gives, so `int64(1)` and `1` name the same entry. They raised `TypeError`.
+- `SafeDisk.with_numpy()` accepts arrays in keys, alone or inside tuples and lists, and as `memoize` arguments. Every array in a key is stored in C order, so an equal array of the same dtype and shape names the same entry. A key without numpy keeps the bytes earlier versions wrote.
+- `SafeDisk.with_numpy()` stores `datetime64` and `timedelta64` scalars with their unit, arrays of objects element by element (each element checked like any value), record arrays and masked arrays with their type, and memory maps as the plain array of their data. They raised `TypeError`. These entries, and keys holding numpy data, read as unreadable on 5.8.3 and earlier.
+
+### Fixes
+
+- `SafeDisk.with_numpy()` stores each short-lived array a value hands to pickle with its own data. A value whose pickling made temporary views of one array, such as an object whose `__reduce__` yields slices, could be stored with one view's data in place of later ones, which then read back wrong. Affected 5.8.2 and 5.8.3.
+
 ## 5.8.3 (2026-11-03)
 
 Fixes a regression from 5.8.2 and several `SafeDisk` issues found by testing downstream libraries, and updates the documentation. The `cache.db` schema and the file layout are unchanged.
@@ -86,7 +99,7 @@ The package is now imported as `diskcache_community`, so it installs next to the
 ### Packaging
 
 - **Breaking:** the package is imported as `diskcache_community` instead of `diskcache`, so it installs next to the upstream `diskcache` distribution without overwriting it, and a project can move to the fork while other dependencies still require `diskcache`. The public API, the `cache.db` schema, the file layout and the serialization are unchanged, so cache directories are shared with 5.6.3 in both directions. Django settings name `diskcache_community.DjangoCache` and `diskcache_community.SafeDisk`. The import-time warning about an upstream `diskcache` installed in the same environment is gone, and a CI job installs both distributions together, runs the golden tests in both directions and checks that uninstalling either leaves the other working (PR #22).
-- `LICENSE` now holds the full Apache License 2.0 text instead of the short boilerplate notice, so GitHub and package indexes detect the license; the copyright and fork notice stay in `NOTICE` (PR #21).
+- `LICENSE` now holds the full Apache License 2.0 text instead of the short boilerplate notice, so GitHub and package indexes detect the license.
 
 ## 5.7.0 (2026-10-11)
 
