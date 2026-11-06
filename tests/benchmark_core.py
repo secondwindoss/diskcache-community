@@ -1,10 +1,3 @@
-"""Benchmark diskcache_community.Cache
-
-$ export PYTHONPATH=/Users/grantj/repos/python-diskcache
-$ python tests/benchmark_core.py -p 1 > tests/timings_core_p1.txt
-$ python tests/benchmark_core.py -p 8 > tests/timings_core_p8.txt
-"""
-
 import collections as co
 import multiprocessing as mp
 import os

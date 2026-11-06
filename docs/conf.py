@@ -20,8 +20,8 @@ import diskcache_community as diskcache
 # -- Project information -----------------------------------------------------
 
 project = 'DiskCache'
-copyright = '2016-2023 Grant Jenks, 2026 diskcache-community contributors'
-author = 'Grant Jenks and diskcache-community contributors'
+copyright = '2026 August V.'
+author = 'August V.'
 
 # The full version, including alpha/beta/rc tags
 release = diskcache.__version__
@@ -42,7 +42,7 @@ extensions = [
 ogp_site_url = 'https://diskcache-community.readthedocs.io/en/latest/'
 ogp_site_name = 'diskcache-community'
 ogp_image = 'https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/.github/social-preview.png'
-ogp_image_alt = 'diskcache-community: the maintained fork of python-diskcache'
+ogp_image_alt = 'diskcache-community'
 ogp_description_length = 200
 
 # Add any paths that contain templates here, relative to this directory.

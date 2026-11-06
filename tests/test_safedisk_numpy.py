@@ -115,6 +115,16 @@ class Forger(pickle.Pickler):
         return obj.pid if isinstance(obj, Pid) else None
 
 
+class Call:
+    """Pickles as a call of `func` with `args`, as a crafted row can."""
+
+    def __init__(self, func, *args):
+        self.func, self.args = func, args
+
+    def __reduce__(self):
+        return self.func, self.args
+
+
 def forge(value):
     buffer = io.BytesIO()
     Forger(buffer, protocol=5).dump(value)
@@ -509,20 +519,50 @@ def test_scalars_in_the_other_safe_containers(directory, make):
     assert type(item) is np.int64
 
 
-@pytest.mark.parametrize(
-    'scalar',
-    [
-        np.datetime64('2026-01-01T00:00:00.000000000'),
-        np.timedelta64(5, 'ns'),
-    ],
-    ids=lambda value: type(value).__name__,
-)
-def test_time_scalars_are_refused(directory, scalar):
+TIME_SCALARS = [
+    np.datetime64('2026-01-01T00:00:00.000000000'),
+    np.datetime64('2026-11-05'),
+    np.datetime64('2026-11', 'M'),
+    np.datetime64(7, '25s'),
+    np.datetime64('NaT', 'ns'),
+    np.timedelta64(5, 'ns'),
+    np.timedelta64(-3, 'W'),
+    np.timedelta64('NaT', 'D'),
+    np.timedelta64(4, 'h'),
+]
+
+
+@pytest.mark.parametrize('scalar', TIME_SCALARS, ids=repr)
+def test_time_scalars_keep_their_unit(directory, scalar):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
-        with pytest.raises(TypeError):
-            cache['key'] = scalar
-        with pytest.raises(TypeError):
-            cache['key'] = [scalar]
+        cache['key'] = [scalar]
+        (result,) = cache['key']
+        cache[scalar] = 'by time'
+        assert cache[scalar] == 'by time'
+    assert type(result) is type(scalar)
+    assert result.dtype == scalar.dtype
+    assert result.view(np.int64) == scalar.view(np.int64)
+
+
+@pytest.mark.parametrize(
+    'name, value',
+    [
+        ('datetime64[D]', 'text'),
+        ('datetime64[D]', 2**63),
+        ('datetime64[D]', 1.5),
+        ('datetime64[parsec]', 1),
+        ('datetime64[0s]', 1),
+        ('datetime64[D] ', 1),
+        ('timedelta64[1234567890s]', 1),
+        ('datetime64,f8', 1),
+    ],
+)
+def test_forged_time_scalar_is_refused(directory, name, value):
+    write_row(directory, persid(('scalar', name, value)))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
 
 
 def test_long_double_reads_back_or_is_refused(directory):
@@ -539,11 +579,11 @@ def test_long_double_reads_back_or_is_refused(directory):
 @pytest.mark.parametrize(
     'array',
     [
-        np.array([object()], dtype=object),
+        np.array([Outside()], dtype=object),
         np.array([(1, None)], dtype=[('a', 'i4'), ('b', 'O')]),
         np.zeros(1, dtype=[('a', 'O', (2,))]),
     ],
-    ids=['object', 'field', 'subarray'],
+    ids=['outside-element', 'field', 'subarray'],
 )
 def test_object_arrays_are_refused(directory, array):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
@@ -576,30 +616,368 @@ def test_arrays_the_reader_would_refuse_fail_at_write(directory, array):
         assert len(cache) == 0
 
 
+class Matrixish(np.ndarray):
+    """A subclass of ndarray from outside numpy."""
+
+
 @pytest.mark.parametrize(
     'make',
-    [
-        lambda: np.matrix([1, 2]),
-        lambda: np.ma.masked_array([1, 2], mask=[1, 0]),
-        lambda: np.array([1.0]).view(np.recarray),
-    ],
-    ids=['matrix', 'masked', 'recarray'],
+    [lambda: np.matrix([1, 2]), lambda: np.zeros(2).view(Matrixish)],
+    ids=['matrix', 'outside'],
 )
-def test_subclasses_are_refused(directory, make):
+def test_other_subclasses_are_refused(directory, make):
     """numpy.save would silently drop what makes them a subclass."""
     with dc.Cache(directory, disk=ArrayDisk) as cache:
-        with pytest.raises(TypeError, match='subclass'):
+        with pytest.raises(TypeError, match='subclass.*numpy.asarray'):
             cache['key'] = make()
         with pytest.raises(TypeError, match='subclass'):
             cache['key'] = [make()]
+        with pytest.raises(TypeError, match='subclass'):
+            cache[make()] = 'value'
 
 
-def test_numpy_in_a_key_is_refused(directory):
+# Object arrays
+
+
+@pytest.mark.parametrize(
+    'array',
+    [
+        np.array(['a', 1, None, 2.5, b'x', (1, 2)], dtype=object),
+        np.array([[1, 'a'], [None, 2]], dtype=object),
+        np.array(7, dtype=object),
+        np.empty((0, 3), dtype=object),
+        np.asfortranarray(np.array([[1, 2], [3, 4]], dtype=object)),
+    ],
+    ids=['mixed', '2-d', '0-d', 'empty', 'fortran'],
+)
+def test_object_array_round_trip(directory, array):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = array
+        result = cache['key']
+    assert type(result) is np.ndarray
+    assert result.dtype == object
+    assert result.shape == array.shape
+    assert result.tolist() == array.tolist()
+
+
+def test_object_array_holds_lists_arrays_and_shared_items(directory):
+    inner = np.arange(3.0)
+    array = np.empty(4, dtype=object)
+    array[0] = [1, 2]
+    array[1] = inner
+    array[2] = inner
+    array[3] = {'nested': np.array(['x', None], dtype=object)}
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = array
+        result = cache['key']
+
+    assert result[0] == [1, 2]
+    same(result[1], inner)
+    assert result[1] is result[2]
+    assert result[3]['nested'].tolist() == ['x', None]
+
+
+@pytest.mark.parametrize(
+    'args',
+    [
+        ((3,), [1, 2]),
+        ([2], [1, 2]),
+        ((2, -1), [1, 2]),
+        ((True,), [1]),
+        ((1,) * 65, [1]),
+        ((2,), (1, 2)),
+        ((10**20, 0), []),
+    ],
+    ids=['count', 'list-shape', 'negative', 'bool', 'dims', 'tuple', 'huge'],
+)
+def test_forged_object_array_is_refused(directory, args):
+    write_row(directory, persid(('objects',) + args))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
+
+    with dc.Cache(directory, disk=MissDisk) as cache:
+        assert cache.get('key', 'default') == 'default'
+
+
+@pytest.mark.parametrize(
+    'pid',
+    [
+        ('objects', (1,), [1]),
+        ('records', Pid(array_pid(npy_parts(np.zeros(1))))),
+        ('masked', Pid(array_pid(npy_parts(np.zeros(1)))), None, None, False),
+    ],
+    ids=['objects', 'records', 'masked'],
+)
+def test_built_kinds_need_with_numpy(directory, pid):
+    write_row(directory, persid(pid))
+
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        assert cache['key'].shape == (1,)
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        Call(arrays._object_array, (1,), [1]),
+        Call(arrays._import_numpy),
+        Pid((Pid(array_pid(npy_parts(np.arange(2.0)))), 1, 2)),
+        Pid(('objects', (1,))),
+        Pid(('records', Pid(array_pid(npy_parts(np.zeros(1)))), 1)),
+    ],
+    ids=['function', 'module-name', 'array-kind', 'short', 'long'],
+)
+def test_other_rows_naming_arrays_are_refused(directory, value):
+    write_row(directory, forge(value))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
+
+
+# Record arrays, masked arrays and memory maps
+
+
+def test_record_array_round_trip(directory):
+    records = np.rec.array(
+        [(1, 2.5, 'a'), (2, 3.5, 'b')],
+        dtype=[('x', 'i4'), ('y', 'f8'), ('name', 'U3')],
+    )
+    plain = np.array([1.0, 2.0]).view(np.recarray)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['records'] = records
+        cache['plain'] = [plain]
+        result = cache['records']
+        (plain_result,) = cache['plain']
+
+    assert type(result) is np.recarray
+    assert result.dtype == records.dtype
+    assert result.x.tolist() == [1, 2]
+    assert result.name.tolist() == ['a', 'b']
+    assert type(plain_result) is np.recarray
+    assert plain_result.tolist() == [1.0, 2.0]
+
+
+def test_forged_record_array_is_refused(directory):
+    write_row(directory, persid(('records', [1, 2])))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
+
+
+@pytest.mark.parametrize(
+    'array',
+    [
+        np.ma.masked_array([1.0, 2.0, 3.0], mask=[0, 1, 0], fill_value=-1),
+        np.ma.masked_array([1, 2]),
+        np.ma.masked_array([[1, 2], [3, 4]], mask=[[1, 0], [0, 1]]),
+        np.ma.masked_array(['a', 'b'], mask=[0, 1]),
+        np.ma.masked_array(
+            [(1, 2.0), (3, 4.0)],
+            mask=[(0, 1), (1, 0)],
+            dtype=[('a', 'i4'), ('b', 'f8')],
+        ),
+        np.ma.masked_array([1, 2], mask=[1, 0], hard_mask=True),
+    ],
+    ids=['float', 'no-mask', '2-d', 'str', 'structured', 'hard'],
+)
+def test_masked_array_round_trip(directory, array):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = array
+        result = cache['key']
+
+    assert type(result) is np.ma.MaskedArray
+    assert result.dtype == array.dtype
+    assert result.data.tobytes() == array.data.tobytes()
+    assert np.ma.getmaskarray(result).tolist() == (
+        np.ma.getmaskarray(array).tolist()
+    )
+    assert result.fill_value == array.fill_value
+    assert result.hardmask == array.hardmask
+    if np.ma.getmask(array) is np.ma.nomask:
+        assert np.ma.getmask(result) is np.ma.nomask
+
+
+@pytest.mark.parametrize(
+    'args',
+    [
+        ([1.0], None, np.array(0.0), False),
+        (np.zeros(2), np.zeros(3, dtype=bool), np.array(0.0), False),
+        (np.zeros(2), np.zeros(2, dtype='i1'), np.array(0.0), False),
+        (np.zeros(2), None, np.array('text'), False),
+        (np.zeros(2), None, np.zeros(1), False),
+        (np.zeros(2), None, np.array(0.0), 1),
+    ],
+    ids=[
+        'data',
+        'mask-shape',
+        'mask-dtype',
+        'fill-text',
+        'fill-shape',
+        'hard',
+    ],
+)
+def test_forged_masked_array_is_refused(directory, args):
+    data, mask, fill, hard = (
+        Pid(array_pid(npy_parts(arg))) if isinstance(arg, np.ndarray) else arg
+        for arg in args
+    )
+    write_row(directory, persid(('masked', data, mask, fill, hard)))
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(pickle.UnpicklingError):
+            cache['key']
+
+
+def test_memory_map_is_stored_as_its_data(directory):
+    path = op.join(directory, 'map.bin')
+    mapped = np.memmap(path, dtype='f4', mode='w+', shape=(2, 3))
+    mapped[:] = np.arange(6).reshape(2, 3)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = {'map': mapped, 'row': mapped[1]}
+        result = cache['key']
+        cache[mapped] = 'by map'
+        assert cache[np.arange(6, dtype='f4').reshape(2, 3)] == 'by map'
+
+    same(result['map'], np.arange(6, dtype='f4').reshape(2, 3))
+    same(result['row'], np.arange(3, 6, dtype='f4'))
+    del mapped
+
+
+# Arrays in keys
+
+
+def test_array_key_names_the_entry_of_an_equal_array(directory):
+    key = np.arange(6.0).reshape(2, 3)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache[key] = 'value'
+        assert cache[key.copy()] == 'value'
+        assert cache[np.asfortranarray(key)] == 'value'
+        assert cache[key[::-1][::-1]] == 'value'
+        assert cache.get(key.astype(np.float32)) is None
+        assert cache.get(key.reshape(3, 2)) is None
+        assert cache.get(key + 1) is None
+        assert len(cache) == 1
+        (stored,) = list(cache)
+
+    same(stored, key)
+
+
+def test_array_key_bytes_do_not_depend_on_order_or_flags(directory):
+    disk = ArrayDisk(directory)
+    key = np.arange(6.0).reshape(2, 3)
+    readonly = key.copy()
+    readonly.flags.writeable = False
+    expected = disk.put(key)
+
+    assert disk.put(np.asfortranarray(key)) == expected
+    assert disk.put(readonly) == expected
+    assert disk.hash(np.asfortranarray(key)) == disk.hash(key)
+
+
+@pytest.mark.parametrize(
+    'key',
+    [
+        ('image', np.arange(4, dtype=np.uint8)),
+        [np.zeros(2), {'x': np.ones(1)}.get('x')],
+        (np.datetime64('2026-11-05'), 'day'),
+        np.array(['a', None, 3], dtype=object),
+        np.rec.array([(1, 2.0)], dtype=[('a', 'i4'), ('b', 'f8')]),
+        np.ma.masked_array([1, 2], mask=[0, 1]),
+    ],
+    ids=['tuple', 'list', 'time', 'objects', 'records', 'masked'],
+)
+def test_numpy_keys_round_trip(directory, key):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache[key] = 'value'
+        assert cache[key] == 'value'
+        (stored,) = list(cache)
+        assert repr(stored) == repr(key)
+
+
+def test_keys_without_numpy_keep_their_bytes(directory):
+    for key in [('a', 1), Pair(1, 2), frozenset({1})]:
+        assert ArrayDisk.with_types(Pair)(directory).put(key) == (
+            dc.SafeDisk.with_types(Pair)(directory).put(key)
+        )
+
+
+def test_memoize_with_array_arguments(directory):
+    calls = []
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+
+        @cache.memoize()
+        def total(values):
+            calls.append(1)
+            return float(values.sum())
+
+        assert total(np.arange(4.0)) == 6.0
+        assert total(np.arange(4.0)) == 6.0
+        assert total(np.arange(5.0)) == 10.0
+
+    assert len(calls) == 2
+
+
+def test_fanout_cache_with_array_keys(directory):
+    with dc.FanoutCache(directory, shards=4, disk=ArrayDisk) as cache:
+        for size in range(8):
+            cache[np.arange(float(size))] = size
+        assert [cache[np.arange(float(size))] for size in range(8)] == list(
+            range(8)
+        )
+
+
+@pytest.mark.parametrize(
+    'numpy_key, plain',
+    [
+        (np.int64(1), 1),
+        (np.uint8(200), 200),
+        (np.float64(2.5), 2.5),
+        (np.float32(0.5), 0.5),
+        (np.bool_(True), True),
+        (np.str_('text'), 'text'),
+        (np.bytes_(b'data'), b'data'),
+        ((np.int64(8), np.int64(3)), (8, 3)),
+        (('name', [np.int32(1), (np.str_('a'),)]), ('name', [1, ('a',)])),
+    ],
+)
+def test_numpy_scalar_in_a_key_names_the_plain_entry(
+    directory, numpy_key, plain
+):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache[numpy_key] = 'value'
+        assert cache[plain] == 'value'
+        assert numpy_key in cache
+        assert len(cache) == 1
+        (stored,) = list(cache)
+        assert stored == plain
+        assert type(stored) is type(plain)
+        cache[plain] = 'other'
+        assert cache[numpy_key] == 'other'
+        assert len(cache) == 1
+
+
+def test_numpy_scalar_key_is_refused_without_numpy_support(directory):
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
         with pytest.raises(TypeError):
             cache[(np.int64(1),)] = 'value'
-        with pytest.raises(TypeError):
-            cache[(np.arange(2.0).tobytes(), np.arange(2.0))] = 'value'
+
+
+def test_plain_key_leaves_other_keys_alone():
+    key = ('a', 1, [2.5, b'x'], None)
+    assert arrays.plain_key(np, key) is key
+    assert arrays.plain_key(np, (np.int8(1),)) == (1,)
 
 
 def test_memoize(directory):
@@ -631,10 +1009,27 @@ def test_memoize_scalar_keeps_its_type_on_a_hit(directory):
     assert np.isnan(first) and np.isnan(second)
 
 
-def test_memoize_scalar_argument_is_refused(directory):
+def test_memoize_scalar_argument_shares_the_plain_entry(directory):
+    calls = []
+
     with dc.Cache(directory, disk=ArrayDisk) as cache:
 
         @cache.memoize()
+        def compute(value):
+            calls.append(value)
+            return value * 2
+
+        assert compute(np.int64(3)) == 6
+        assert compute(3) == 6
+        assert compute(np.int32(3)) == 6
+
+    assert calls == [3]
+
+
+def test_memoize_typed_scalar_argument_is_refused(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+
+        @cache.memoize(typed=True)
         def compute(value):
             return value
 
@@ -935,14 +1330,19 @@ def test_with_numpy_refusal_of_other_numpy_objects(directory):
         with pytest.raises(TypeError) as info:
             cache['key'] = {'dtype': np.dtype('f8')}
     assert str(info.value).endswith(
-        'with_numpy() stores only arrays and numpy scalars'
+        'with_numpy() stores arrays and numpy scalars, not other numpy'
+        ' objects'
     )
 
 
-def test_object_array_refusal_mentions_dataframes(directory):
+def test_object_field_refusal_mentions_dataframes(directory):
     with dc.Cache(directory, disk=ArrayDisk) as cache:
-        with pytest.raises(TypeError, match='DataFrame .* records'):
-            cache['key'] = np.array(['a', None], dtype=object)
+        with pytest.raises(
+            TypeError, match='object fields.*to_records.*columns'
+        ):
+            cache['key'] = np.array(
+                [(1, None)], dtype=[('a', 'i4'), ('b', 'O')]
+            )
 
 
 def test_safejsondisk_refuses_with_numpy():
@@ -1210,21 +1610,38 @@ def test_forged_persistent_id_is_refused(directory, pid):
         assert len(cache) == 0
 
 
+def write_key_row(directory, data):
+    """Store the pickle `data` in the key column of a row."""
+    with dc.Cache(directory, disk=dc.SafeDisk) as cache:
+        cache[('key',)] = 'value'
+    con = sqlite3.connect(op.join(directory, 'cache.db'))
+    con.execute(
+        'UPDATE Cache SET key = ? WHERE raw = 0', (sqlite3.Binary(data),)
+    )
+    con.commit()
+    con.close()
+
+
 @pytest.mark.parametrize(
     'pid',
     [array_pid(npy_parts(np.arange(2.0))), ('scalar', 'int64', 1)],
     ids=['array', 'scalar'],
 )
-def test_persistent_id_in_a_key_row_is_refused(directory, pid):
+def test_persistent_id_in_a_key_row(directory, pid):
+    write_key_row(directory, persid(pid))
+
     with dc.Cache(directory, disk=dc.SafeDisk) as cache:
-        cache[('key',)] = 'value'
-    con = sqlite3.connect(op.join(directory, 'cache.db'))
-    con.execute(
-        'UPDATE Cache SET key = ? WHERE raw = 0',
-        (sqlite3.Binary(persid(pid)),),
-    )
-    con.commit()
-    con.close()
+        with pytest.raises(pickle.UnpicklingError):
+            list(cache)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        (key,) = list(cache)
+    assert repr(key) in (repr(np.arange(2.0)), repr(np.int64(1)))
+
+
+@pytest.mark.parametrize('pid', FORGED_IDS.values(), ids=FORGED_IDS.keys())
+def test_forged_persistent_id_in_a_key_row_is_refused(directory, pid):
+    write_key_row(directory, persid(pid))
 
     with dc.Cache(directory, disk=ArrayDisk) as cache:
         with pytest.raises(pickle.UnpicklingError):
@@ -1436,3 +1853,304 @@ def test_deep_nesting_reads_without_recursing(directory):
         result = cache.get('key', 'default')
 
     assert type(result) is list
+
+
+def test_header_is_parsed_once_and_still_checked_against_the_data(
+    directory, monkeypatch
+):
+    arrays._parsed_headers.clear()
+    arrays._written_headers.clear()
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['a'] = np.arange(4, dtype=np.float32)
+        parsed = []
+        original = arrays._parse_header
+        monkeypatch.setattr(
+            arrays,
+            '_parse_header',
+            lambda *args: parsed.append(1) or original(*args),
+        )
+        cache['b'] = np.arange(4, 8, dtype=np.float32)
+        same(cache['a'], np.arange(4, dtype=np.float32))
+        same(cache['b'], np.arange(4, 8, dtype=np.float32))
+        assert parsed == []
+
+    header, _ = arrays._pack_array(np, np.arange(4, dtype=np.float32))
+    with pytest.raises(pickle.UnpicklingError):
+        arrays._unpack_array(header, bytearray(12))
+    with pytest.raises(pickle.UnpicklingError):
+        arrays._unpack_array(header, bytearray(20))
+
+
+def test_written_header_matches_numpy(directory):
+    arrays._written_headers.clear()
+    for array in (
+        np.zeros((3, 2), dtype='>i2'),
+        np.asfortranarray(np.zeros((3, 2))),
+        np.zeros(0, dtype='M8[ns]'),
+        np.zeros((), dtype='U3'),
+    ):
+        for _ in range(2):
+            header, _ = arrays._pack_array(np, array)
+            buffer = io.BytesIO()
+            fields = np.lib.format.header_data_from_array_1_0(array)
+            np.lib.format.write_array_header_1_0(buffer, fields)
+            assert header == buffer.getvalue()
+
+
+def test_structured_dtype_headers_are_not_kept(directory):
+    arrays._parsed_headers.clear()
+    arrays._written_headers.clear()
+    dtype = np.dtype([('x', '<f4'), ('y', '<i4')])
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['a'] = np.zeros(2, dtype=dtype)
+        first = cache['a']
+        first.dtype.names = ('p', 'q')
+        assert cache['a'].dtype.names == ('x', 'y')
+    assert not arrays._parsed_headers
+    assert not arrays._written_headers
+
+
+def test_header_tables_are_emptied_when_full(directory, monkeypatch):
+    monkeypatch.setattr(arrays, '_HEADERS_KEPT', 3)
+    arrays._parsed_headers.clear()
+    arrays._written_headers.clear()
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        for size in range(1, 8):
+            cache[size] = np.zeros(size)
+            same(cache[size], np.zeros(size))
+    assert 0 < len(arrays._parsed_headers) <= 3
+    assert 0 < len(arrays._written_headers) <= 3
+
+
+def test_forged_header_is_not_kept(directory):
+    arrays._parsed_headers.clear()
+    header, _ = arrays._pack_array(np, np.zeros(2, dtype='<f8'))
+    forged = header.replace(b"'<f8'", b"'|O8'")
+    for _ in range(2):
+        with pytest.raises(pickle.UnpicklingError):
+            arrays._unpack_array(forged, bytearray(16))
+    assert forged not in arrays._parsed_headers
+
+
+def test_unpicklable_key_with_an_array_is_refused(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='cannot store key'):
+            cache[(np.arange(2.0), lambda: None)] = 'value'
+
+
+def test_structured_scalar_is_refused(directory):
+    record = np.zeros(1, dtype=[('a', 'i4')])[0]
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='scalar of type numpy.void'):
+            cache['key'] = [record]
+
+
+class Views:
+    """Hands pickle short-lived views of one array, which reuse ids."""
+
+    def __init__(self, base, count):
+        self.base, self.count = base, count
+
+    def __reduce__(self):
+        views = (self.base[n : n + 2] for n in range(self.count))
+        return (list, (), None, views)
+
+
+def test_short_lived_views_keep_their_own_data(directory):
+    """5.8.2 and 5.8.3 stored the first view's data for later ones."""
+    base = np.arange(20.0)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = Views(base, 10)
+        result = cache['key']
+
+    for n, view in enumerate(result):
+        same(view, base[n : n + 2].copy())
+
+
+@pytest.mark.parametrize(
+    'unit, stored',
+    [('999999999s', True), ('1000000000s', False), ('2147483647s', False)],
+)
+def test_time_unit_multiple_limit(directory, unit, stored):
+    scalar = np.timedelta64(1, unit)
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        if stored:
+            cache['key'] = [scalar]
+            assert cache['key'][0].dtype == scalar.dtype
+        else:
+            with pytest.raises(TypeError, match='unit'):
+                cache['key'] = [scalar]
+            assert len(cache) == 0
+
+
+def test_two_time_units_in_one_value(directory):
+    value = [
+        np.datetime64(5, 'ns'),
+        np.datetime64(5, 'D'),
+        np.datetime64(6, 'ns'),
+    ]
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = value
+        result = cache['key']
+
+    assert [item.dtype for item in result] == [item.dtype for item in value]
+    assert result == value
+
+
+def test_time_keys_of_another_unit_are_other_entries(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache[np.datetime64('2026-11-05', 'D')] = 'day'
+        cache[np.datetime64('2026-11-05T00', 'h')] = 'hour'
+        assert len(cache) == 2
+
+
+def test_array_key_format_is_pinned(directory):
+    """Keys are looked up by their bytes: this is hand-built."""
+    key = np.arange(3.0)
+    header = (
+        b"\x93NUMPY\x01\x00v\x00{'descr': '<f8', 'fortran_order': False,"
+        b" 'shape': (3,), }" + b' ' * 60 + b'\n'
+    )
+    expected = pickletools.optimize(
+        persid(('npy', header, bytearray(key.tobytes())))
+    )
+
+    db_key, raw = ArrayDisk(directory).put(key)
+    assert bytes(db_key) == expected
+    assert raw is False
+
+
+def test_key_holding_an_outside_object_is_refused(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='Outside'):
+            cache[(np.arange(2.0), Outside())] = 'value'
+        assert len(cache) == 0
+
+
+@pytest.mark.parametrize('what', ['value', 'key'])
+def test_self_referencing_object_array_is_refused(directory, what):
+    array = np.empty(1, dtype=object)
+    array[0] = array
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='cannot store ' + what):
+            if what == 'value':
+                cache['key'] = array
+            else:
+                cache[array] = 'value'
+
+
+def test_long_headers_are_not_kept(directory, monkeypatch):
+    monkeypatch.setattr(arrays, '_HEADER_SIZE_KEPT', 64)
+    arrays._parsed_headers.clear()
+    arrays._written_headers.clear()
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = np.arange(3.0)
+        same(cache['key'], np.arange(3.0))
+
+    assert not arrays._parsed_headers
+    assert not arrays._written_headers
+
+
+def test_class_key_holding_an_array(directory):
+    disk = ArrayDisk.with_types(Result)
+    key = Result('first', np.arange(2.0))
+
+    with dc.Cache(directory, disk=disk) as cache:
+        cache[key] = 'value'
+        (stored,) = list(cache)
+    assert stored.name == 'first'
+    same(stored.vector, np.arange(2.0))
+
+
+@pytest.mark.parametrize('protocol', [2, 4, 5])
+def test_key_bytes_at_every_protocol(directory, protocol):
+    disk = ArrayDisk.with_types(Pair)(directory, pickle_protocol=protocol)
+    plain = dc.SafeDisk.with_types(Pair)(directory, pickle_protocol=protocol)
+
+    for key in [('a', 1), Pair(1, 2), frozenset({1}), (1, 'a', None)]:
+        assert disk.put(key) == plain.put(key)
+
+    with dc.Cache(
+        directory, disk=ArrayDisk, disk_pickle_protocol=protocol
+    ) as cache:
+        cache[np.arange(2.0)] = 'value'
+        assert cache[np.arange(2.0)] == 'value'
+
+
+@pytest.mark.parametrize(
+    'numpy_key, plain',
+    [
+        (np.complex128(1 + 2j), 1 + 2j),
+        ({'a': np.int64(1)}, {'a': 1}),
+        ({np.str_('a'): [np.float64(2.5)]}, {'a': [2.5]}),
+        (frozenset({np.int64(1)}), frozenset({1})),
+        ((np.int32(3), {np.int8(4)}), (3, {4})),
+    ],
+    ids=['complex', 'dict', 'dict-key', 'frozenset', 'set'],
+)
+def test_numpy_scalars_in_containers_name_the_plain_entry(
+    directory, numpy_key, plain
+):
+    disk = ArrayDisk(directory)
+    assert disk.put(numpy_key) == disk.put(plain)
+    assert disk.hash(numpy_key) == disk.hash(plain)
+
+
+def test_plain_tuple_key_is_returned_as_is():
+    key = ('a', 1, 2.5, None, True, b'x')
+    assert arrays.plain_key(np, key) is key
+
+
+def test_masked_constant_is_refused_with_a_hint(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='plain masked array'):
+            cache['key'] = [np.ma.masked]
+
+
+def test_typed_memoize_hint_names_numpy_classes(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+
+        @cache.memoize(typed=True)
+        def compute(value):
+            return value
+
+        with pytest.raises(
+            TypeError, match='memoize.typed=True. puts in keys'
+        ):
+            compute(np.int64(3))
+
+
+def test_shared_record_array_stays_shared(directory):
+    records = np.rec.array([(1, 2.0)], dtype=[('a', 'i4'), ('b', 'f8')])
+
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        cache['key'] = [records, records]
+        first, second = cache['key']
+
+    assert first is second
+    assert type(first) is np.recarray
+
+
+def test_unpicklable_key_without_numpy_is_refused(directory):
+    with dc.Cache(directory, disk=ArrayDisk) as cache:
+        with pytest.raises(TypeError, match='cannot store key'):
+            cache[('f', lambda: None)] = 'value'
+
+
+def test_key_pickled_with_an_extension_code(directory):
+    import copyreg
+
+    copyreg.add_extension(Pair.__module__, 'Pair', 0x7FFF0001)
+    try:
+        disk = ArrayDisk.with_types(Pair)
+        with dc.Cache(directory, disk=disk) as cache:
+            cache[('f', Pair(1, 2))] = 'value'
+            assert cache[('f', Pair(1, 2))] == 'value'
+            assert list(cache) == [('f', Pair(1, 2))]
+    finally:
+        copyreg.remove_extension(Pair.__module__, 'Pair', 0x7FFF0001)

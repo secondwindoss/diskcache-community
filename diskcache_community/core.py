@@ -955,13 +955,24 @@ class SafeDisk(Disk):
 
         The returned class writes arrays through pickle's persistent IDs in
         numpy's ``.npy`` format with ``allow_pickle=False``, anywhere in a
-        value except in keys, and checks each header before it reads an
-        array back. (Plain :class:`SafeDisk` refuses numpy pickles, because
-        unpickling an array is not memory-safe.) numpy scalars keep their
-        type, and arrays of ``datetime64`` and ``timedelta64`` are stored too.
-        Object arrays, ``ndarray`` subclasses and other numpy scalars raise
-        :exc:`TypeError` when written. It combines with :meth:`with_types`
-        and :meth:`with_options` in any order.
+        value, and checks each header before it reads an array back. (Plain
+        :class:`SafeDisk` refuses numpy pickles, because unpickling an array
+        is not memory-safe.) numpy scalars in a value keep their type,
+        ``datetime64`` and ``timedelta64`` scalars their unit. Arrays of
+        objects are stored element by element, each element checked like any
+        value. Record arrays and masked arrays keep their type, and a memory
+        map is stored as the plain array of its data. Other ``ndarray``
+        subclasses, such as ``numpy.matrix``, arrays with object fields and
+        other numpy scalars raise :exc:`TypeError` when written. It combines
+        with :meth:`with_types` and :meth:`with_options` in any order.
+
+        In a key, numpy booleans, integers, floats, complex numbers, strings
+        and bytes, also inside tuples, lists, dicts, sets and frozensets,
+        become the Python values ``item()`` gives, so ``int64(1)`` and ``1``
+        name the same entry. Arrays and the other
+        numpy objects above are stored in keys as in values, with every array
+        in C order, so equal arrays of the same dtype and shape name the same
+        entry. A key without numpy is stored as a plain SafeDisk stores it.
 
         A value with no numpy in it is an ordinary pickle. An entry holding
         numpy data cannot be read by any other disk, or by diskcache 5.6.3,
@@ -1015,9 +1026,14 @@ class SafeDisk(Disk):
 
         self._check_pickle(data, obj, what)
 
-    def _check_pickle(self, data, obj, what):
-        """Raise TypeError unless the reader would accept the pickle `data`."""
-        names = _pickle_globals(data)
+    def _check_pickle(self, data, obj, what, names=UNKNOWN):
+        """Raise TypeError unless the reader would accept the pickle `data`.
+
+        `names` are the names `data` looks up, if the caller already has them.
+
+        """
+        if names is UNKNOWN:
+            names = _pickle_globals(data)
 
         if names is None:
             try:
@@ -1041,15 +1057,20 @@ class SafeDisk(Disk):
                         type(obj).__qualname__,
                         module,
                         name,
-                        self._refusal_hint(module, name),
+                        self._refusal_hint(module, name, what),
                     )
                 ) from None
 
-    def _refusal_hint(self, module, name):
+    def _refusal_hint(self, module, name, what):
         """Return how to store what pickles the refused `module`.`name`."""
         if _in_modules(module, ('numpy',)):
             if self.safe_numpy:
-                return '; with_numpy() stores only arrays and numpy scalars'
+                hint = '; with_numpy() stores arrays and numpy scalars, not other numpy objects'
+                # pylint: disable-next=protected-access
+                resolved = SafeUnpickler._resolve(module, name)
+                if what == 'key' and isinstance(resolved, type):
+                    hint += ', such as the numpy classes that memoize(typed=True) puts in keys'
+                return hint
             return '; store arrays with SafeDisk.with_numpy()'
 
         for unsafe in _UNSAFE_MODULES:
@@ -1143,15 +1164,20 @@ class SafeDisk(Disk):
 
     def put(self, key):
         # pylint: disable=unidiomatic-typecheck
-        if type(key) not in (bytes, str, int, float):
+        if type(key) in (bytes, str, int, float):
+            return super().put(key)
+        numpy = sys.modules.get('numpy') if self.safe_numpy else None
+        if numpy is None:
             self._check_object(key, 'key')
-        return super().put(key)
+            return super().put(key)
+        key = arrays.plain_key(numpy, key)
+        fields = arrays.put_key(self, numpy, key)
+        return super().put(key) if fields is None else fields
 
     def get(self, key, raw):
         if raw:
             return super().get(key, raw)
-        # Keys exclude numpy, so a key row gets no persistent IDs.
-        return self._plain_unpickler(io.BytesIO(key)).load()
+        return self._unpickler(io.BytesIO(key)).load()
 
     def store(self, value, read, key=UNKNOWN):
         # pylint: disable=unidiomatic-typecheck

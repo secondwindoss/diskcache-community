@@ -1,6 +1,6 @@
 # Contributing
 
-diskcache-community is a community fork of [DiskCache](https://github.com/grantjenks/python-diskcache). Bug reports, fixes and small, focused features are welcome. For anything larger, open an issue first so the approach can be agreed before the work is done.
+diskcache-community is a fork of [DiskCache](https://github.com/grantjenks/python-diskcache). Bug reports, fixes and small, focused features are welcome. For anything larger, open an issue first so the approach can be agreed before the work is done.
 
 ## Setting up
 

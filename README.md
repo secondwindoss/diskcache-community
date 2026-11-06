@@ -27,16 +27,6 @@
 </p>
 <br />
 
-> [!IMPORTANT]
-> This is a community fork of [python-diskcache](https://github.com/grantjenks/python-diskcache),
-> whose last release was 5.6.3 in August 2023. It is published on PyPI as
-> `diskcache-community` and imported as `diskcache_community`, so it installs
-> next to the upstream `diskcache` package. It carries the fix path for
-> [CVE-2025-69872](https://github.com/advisories/GHSA-w8v5-vhqr-4h9v) and
-> reads and writes the same cache directories as 5.6.3.
-> See [Why this fork](#why-this-fork), [Migrating from diskcache](#migrating-from-diskcache)
-> and [Fix CVE-2025-69872 in diskcache](https://diskcache-community.readthedocs.io/en/latest/fix-cve-2025-69872.html).
-
 ## Install
 
 ```sh
@@ -127,8 +117,7 @@ The upstream project stopped releasing after 5.6.3 (August 2023) and its last
 commit landed in March 2024. In 2025, CVE-2025-69872 was published against
 every released version: the cache reads pickled values with `pickle.load`, so
 anyone who can write into the cache directory can run code in the process
-that reads from it. The package still works, but scanners flag it and there
-is no fixed upstream version.
+that reads from it. 
 
 This fork publishes the same library as `diskcache-community`. It keeps the
 `cache.db` schema, the file layout, the serialization modes and the memoize
@@ -140,9 +129,6 @@ imported as `diskcache_community`, so a project can move to it while other
 dependencies in the same environment still use the upstream `diskcache`.
 The [changelog](CHANGELOG.md) lists every change and
 [SECURITY.md](SECURITY.md) describes what is and is not fixed.
-
-DiskCache was written and maintained by Grant Jenks from 2016 to 2023. This
-fork keeps his license, copyright and author credit; see [NOTICE](NOTICE).
 
 ## Migrating from diskcache
 
@@ -222,6 +208,5 @@ how to run the tests. Report vulnerabilities privately as described in
 
 ## License
 
-Copyright 2016-2023 Grant Jenks. Modifications in this fork are copyright
-2026 diskcache-community contributors. Licensed under the
-[Apache License, Version 2.0](LICENSE).
+Copyright 2026 August V. 
+Licensed under the [Apache License, Version 2.0](LICENSE).
