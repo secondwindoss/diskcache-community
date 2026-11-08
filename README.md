@@ -10,6 +10,11 @@
 
 <h2><p align="center">Disk and file backed persistent cache for Python, built on SQLite</p></h2>
 
+<p align="center">
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per day" src="https://img.shields.io/pypi/dd/diskcache-community.svg"></a>
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per week" src="https://img.shields.io/pypi/dw/diskcache-community.svg"></a>
+</p>
+
 <h4><p align="center">
 <a href="https://diskcache-community.readthedocs.io/en/latest/tutorial.html">[Tutorial]</a>
 - <a href="https://diskcache-community.readthedocs.io/en/latest/api.html">[API]</a>
