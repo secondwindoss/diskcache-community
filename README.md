@@ -1,23 +1,31 @@
+<br />
 <p align="center">
   <img alt="diskcache community: disk and file backed persistent cache for Python, built on SQLite" src="https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/docs/_static/banner.png" width="100%">
 </p>
 
-<p align="center">
-  <a href="https://diskcache-community.readthedocs.io/en/latest/tutorial.html">Tutorial</a> ·
-  <a href="https://diskcache-community.readthedocs.io/en/latest/api.html">API</a> ·
-  <a href="https://diskcache-community.readthedocs.io/en/latest/benchmarks.html">Benchmarks</a> ·
-  <a href="https://diskcache-community.readthedocs.io/en/latest/">Docs</a> ·
-  <a href="https://github.com/secondwindoss/diskcache-community/blob/master/CHANGELOG.md">Changelog</a>
-</p>
+<h1 align="center">diskcache-community</h1>
+
+<h2><p align="center">Disk and file backed persistent cache for Python, built on SQLite</p></h2>
 
 <p align="center">
-  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/diskcache-community?style=flat-square&labelColor=black&color=2BB5A5&logo=pypi&logoColor=white&label=pypi"></a>
-  <a href="https://pypi.org/project/diskcache-community/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/diskcache-community?style=flat-square&labelColor=black&color=3776AB&logo=python&logoColor=white&label=python"></a>
-  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per day" src="https://img.shields.io/pypi/dd/diskcache-community?style=flat-square&labelColor=black&color=F2B33D&label=downloads"></a>
-  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per week" src="https://img.shields.io/pypi/dw/diskcache-community?style=flat-square&labelColor=black&color=F2B33D&label=downloads"></a>
-  <a href="https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/secondwindoss/diskcache-community/ci.yml?branch=master&style=flat-square&labelColor=black&logo=githubactions&logoColor=white&label=ci"></a>
-  <a href="https://diskcache-community.readthedocs.io/en/latest/"><img alt="Documentation" src="https://img.shields.io/readthedocs/diskcache-community?style=flat-square&labelColor=black&logo=readthedocs&logoColor=white&label=docs"></a>
-  <a href="https://github.com/secondwindoss/diskcache-community/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache_2.0-white?style=flat-square&labelColor=black"></a>
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per day" src="https://img.shields.io/pypi/dd/diskcache-community.svg"></a>
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per week" src="https://img.shields.io/pypi/dw/diskcache-community.svg"></a>
+</p>
+
+<h4><p align="center">
+<a href="https://diskcache-community.readthedocs.io/en/latest/tutorial.html">[Tutorial]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/api.html">[API]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/benchmarks.html">[Benchmarks]</a>
+- <a href="https://diskcache-community.readthedocs.io/en/latest/">[Docs]</a>
+- <a href="https://github.com/secondwindoss/diskcache-community/blob/master/CHANGELOG.md">[Changelog]</a>
+</p></h4>
+
+<p align="center">
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/diskcache-community"></a>
+  <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/diskcache-community"></a>
+  <a href="https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/secondwindoss/diskcache-community/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://diskcache-community.readthedocs.io/en/latest/"><img alt="Documentation" src="https://app.readthedocs.org/projects/diskcache-community/badge/?version=latest"></a>
+  <a href="https://github.com/secondwindoss/diskcache-community/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-green.svg"></a>
 </p>
 <br />
 
