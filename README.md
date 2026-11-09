@@ -3,9 +3,7 @@
   <img alt="diskcache community: disk and file backed persistent cache for Python, built on SQLite" src="https://raw.githubusercontent.com/secondwindoss/diskcache-community/master/docs/_static/banner.png" width="100%">
 </p>
 
-<h1 align="center">diskcache-community</h1>
-
-<h2><p align="center">Disk and file backed persistent cache for Python, built on SQLite</p></h2>
+<h3><p align="center">Disk and file backed persistent cache for Python, built on SQLite</p></h3>
 
 <p align="center">
   <a href="https://pypi.org/project/diskcache-community/"><img alt="PyPI downloads per day" src="https://img.shields.io/pypi/dd/diskcache-community.svg"></a>
