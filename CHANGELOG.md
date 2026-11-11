@@ -2,7 +2,9 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
-## Unreleased
+## 5.8.5 (2026-11-11)
+
+Adds a `dbname` argument to `Cache` for the file name of its SQLite database. The `cache.db` schema and the file layout are unchanged.
 
 ### Changes
 
