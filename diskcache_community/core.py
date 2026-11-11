@@ -1728,7 +1728,7 @@ if hasattr(os, 'register_at_fork'):
     )
 
 
-class Cache:
+class Cache:  # pylint: disable=too-many-instance-attributes
     """Disk and file backed cache."""
 
     def __init__(
@@ -1738,6 +1738,7 @@ class Cache:
         disk=None,
         *,
         read_only=False,
+        dbname=None,
         **settings
     ):
         """Initialize cache instance.
@@ -1747,6 +1748,8 @@ class Cache:
         :param disk: Disk type or subclass for serialization (default None,
             the type :func:`default_disk` returns)
         :param bool read_only: open the cache read-only (default False)
+        :param str dbname: file name of the SQLite database in `directory`
+            (default None, meaning ``cache.db``)
         :param settings: any of DEFAULT_SETTINGS
 
         The cache directory, any missing parents and the subdirectories that
@@ -1773,6 +1776,15 @@ class Cache:
                 'disk must subclass diskcache_community.Disk'
             ) from None
 
+        if dbname is None:
+            dbname = DBNAME
+        elif (
+            not isinstance(dbname, str)
+            or dbname in ('', os.curdir, os.pardir)
+            or op.basename(dbname) != dbname
+        ):
+            raise ValueError('dbname must be a file name, not %r' % (dbname,))
+
         if directory is None:
             directory = tempfile.mkdtemp(prefix='diskcache-')
         directory = str(directory)
@@ -1780,6 +1792,7 @@ class Cache:
         directory = op.expandvars(directory)
 
         self._directory = directory
+        self._dbname = dbname
         self._timeout = 0  # Manually handle retries during initialization.
         self._local = threading.local()
         self._cons = _Connections()
@@ -1788,7 +1801,7 @@ class Cache:
         finalizer = weakref.finalize(self, self._cons.close_all)
         finalizer.atexit = False
 
-        self._read_only = self._resolve_read_only(directory, read_only)
+        self._read_only = self._resolve_read_only(directory, read_only, dbname)
 
         if not op.isdir(directory):
             try:
@@ -1866,11 +1879,11 @@ class Cache:
         self._sql  # pylint: disable=pointless-statement
 
     @staticmethod
-    def _resolve_read_only(directory, read_only):
+    def _resolve_read_only(directory, read_only, dbname):
         # A database that exists but cannot be written, or whose directory
         # cannot be written, is opened read-only. Opening read-only on
         # purpose needs an existing database, since nothing is created.
-        db_path = op.join(directory, DBNAME)
+        db_path = op.join(directory, dbname)
         db_exists = op.isfile(db_path)
 
         if read_only and not db_exists:
@@ -2005,7 +2018,7 @@ class Cache:
         # it, once that thread has exited. Each connection is still used by
         # one thread at a time, which is all SQLite's multi-thread mode asks.
 
-        path = op.join(self._directory, DBNAME)
+        path = op.join(self._directory, self._dbname)
 
         if self._read_only:
             # mode=ro refuses writes at the SQLite level. A reader of a WAL
@@ -3711,7 +3724,7 @@ class Cache:
                     error = set(paths) - filenames
 
                     for full_path in error:
-                        if DBNAME in full_path:
+                        if self._dbname in full_path:
                             continue
 
                         message = 'unknown file: %s' % full_path
@@ -4154,10 +4167,17 @@ class Cache:
         return self.reset('count')
 
     def __getstate__(self):
-        return (self.directory, self.timeout, type(self.disk))
+        state = (self.directory, self.timeout, type(self.disk))
+        if self._dbname != DBNAME:
+            state += ({'dbname': self._dbname},)
+        return state
 
     def __setstate__(self, state):
-        self.__init__(*state)
+        named = len(state) > 3 and isinstance(state[3], dict)
+        if named and list(state[3]) == ['dbname']:
+            self.__init__(*state[:3], *state[4:], **state[3])
+        else:
+            self.__init__(*state)
 
     def reset(self, key, value=ENOVAL, update=True):
         """Reset `key` and `value` item from Settings table.

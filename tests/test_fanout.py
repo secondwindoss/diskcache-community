@@ -787,3 +787,10 @@ def test_private_directories():
     finally:
         os.umask(umask)
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_dbname_is_refused(tmp_path):
+    with pytest.raises(TypeError):
+        dc.FanoutCache(tmp_path, shards=2, dbname='other.db')
+
+    assert os.listdir(tmp_path) == []
