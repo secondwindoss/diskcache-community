@@ -49,6 +49,9 @@ class FanoutCache:
         if disk is None:
             disk = default_disk()
 
+        if 'dbname' in settings:
+            raise TypeError('FanoutCache does not take dbname')
+
         if directory is None:
             directory = tempfile.mkdtemp(prefix='diskcache-')
         directory = str(directory)

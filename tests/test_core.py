@@ -1,6 +1,7 @@
 """Test diskcache_community.core.Cache."""
 
 import _thread
+import copy
 import errno
 import gc
 import hashlib
@@ -2375,3 +2376,148 @@ def test_get_reads_only_value_columns_without_metadata(cache):
     selects = [text for text in statements if text.startswith('SELECT')]
     assert selects[0].startswith('SELECT mode, filename, value FROM')
     assert selects[1].startswith('SELECT rowid, expire_time, tag,')
+
+
+def _database_names(directory):
+    return sorted(
+        name
+        for name in os.listdir(directory)
+        if not name.endswith(('-wal', '-shm'))
+    )
+
+
+def test_dbname(tmp_path):
+    with dc.Cache(tmp_path, dbname='credentials.db') as cache:
+        cache['key'] = 'value'
+
+    assert _database_names(tmp_path) == ['credentials.db']
+
+    with dc.Cache(tmp_path, dbname='credentials.db') as cache:
+        assert cache['key'] == 'value'
+        with warnings.catch_warnings():
+            warnings.simplefilter('always')
+            assert len(cache.check()) == 0
+
+    with dc.Cache(tmp_path) as cache:
+        assert 'key' not in cache
+
+
+@pytest.mark.parametrize(
+    'dbname', ['', '.', '..', op.join('sub', 'cache.db'), b'cache.db', 1]
+)
+def test_dbname_must_be_file_name(tmp_path, dbname):
+    with pytest.raises(ValueError):
+        dc.Cache(tmp_path, dbname=dbname)
+
+    assert os.listdir(tmp_path) == []
+
+
+def test_dbname_pickle_and_copy(tmp_path):
+    with dc.Cache(tmp_path, dbname='other.db') as cache:
+        cache['key'] = 1
+        assert cache.__getstate__()[3:] == ({'dbname': 'other.db'},)
+        others = [
+            pickle.loads(pickle.dumps(cache)),
+            copy.copy(cache),
+            copy.deepcopy(cache),
+        ]
+
+    for other in others:
+        with other:
+            assert other['key'] == 1
+
+    assert _database_names(tmp_path) == ['other.db']
+
+
+def test_default_dbname_pickle_state(tmp_path):
+    for dbname in (None, dc.core.DBNAME):
+        with dc.Cache(tmp_path, dbname=dbname) as cache:
+            assert cache.__getstate__() == (
+                cache.directory,
+                cache.timeout,
+                type(cache.disk),
+            )
+
+    assert _database_names(tmp_path) == [dc.core.DBNAME]
+
+
+def test_dbname_follows_module_constant(tmp_path, monkeypatch):
+    monkeypatch.setattr(dc.core, 'DBNAME', 'patched.db')
+
+    with dc.Cache(tmp_path) as cache:
+        cache['key'] = 1
+        assert len(cache.__getstate__()) == 3
+        other = pickle.loads(pickle.dumps(cache))
+
+    with other:
+        assert other['key'] == 1
+
+    assert _database_names(tmp_path) == ['patched.db']
+
+
+class _AppendedStateCache(dc.Cache):
+    # Appends its own item to the pickle state and inherits __setstate__.
+    def __init__(
+        self, directory=None, timeout=60, disk=None, kind=None, **settings
+    ):
+        super().__init__(directory, timeout, disk, **settings)
+        self.kind = kind
+
+    def __getstate__(self):
+        return (*super().__getstate__(), self.kind)
+
+
+@pytest.mark.parametrize('kind', ['hashes', {'a': 1}])
+@pytest.mark.parametrize('dbname', [None, 'other.db'])
+def test_subclass_appended_pickle_state(tmp_path, kind, dbname):
+    with _AppendedStateCache(tmp_path, kind=kind, dbname=dbname) as cache:
+        cache['key'] = 1
+        other = pickle.loads(pickle.dumps(cache))
+
+    with other:
+        assert other.kind == kind
+        assert other['key'] == 1
+
+    assert _database_names(tmp_path) == [dbname or dc.core.DBNAME]
+
+
+class _FixedInitCache(dc.Cache):
+    def __init__(self, directory=None, timeout=60, disk=None):
+        super().__init__(directory, timeout, disk)
+
+
+def test_subclass_fixed_init_pickle(tmp_path):
+    with _FixedInitCache(tmp_path) as cache:
+        cache['key'] = 1
+        other = pickle.loads(pickle.dumps(cache))
+
+    with other:
+        assert other['key'] == 1
+
+
+def test_check_fix_keeps_named_database(tmp_path):
+    with dc.Cache(tmp_path, dbname='other.db') as cache:
+        cache['key'] = 1
+        (tmp_path / 'stray.txt').write_text('x')
+        with warnings.catch_warnings():
+            warnings.simplefilter('always')
+            warns = cache.check(fix=True)
+        assert cache['key'] == 1
+
+    assert [str(warn.message) for warn in warns] == [
+        'unknown file: %s' % op.join(str(tmp_path), 'stray.txt')
+    ]
+    assert _database_names(tmp_path) == ['other.db']
+
+
+def test_check_fix_keeps_nested_cache_database(tmp_path):
+    with dc.Cache(tmp_path / 'nested') as nested:
+        nested['key'] = 1
+
+    with dc.Cache(tmp_path) as cache:
+        with warnings.catch_warnings():
+            warnings.simplefilter('always')
+            assert len(cache.check(fix=True)) == 0
+
+    with dc.Cache(tmp_path / 'nested') as nested:
+        assert nested['key'] == 1

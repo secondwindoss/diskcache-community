@@ -408,3 +408,36 @@ def test_read_only_without_metadata_rows(directory):
     with dc.Cache(directory) as cache:
         assert cache.stats() == (0, 0)
         assert cache.reset('hits') == 0
+
+
+@needs_permissions
+def test_read_only_directory_with_dbname(directory):
+    with dc.Cache(directory, dbname='other.db') as cache:
+        cache['key'] = 'value'
+
+    path = op.join(directory, 'other.db')
+    os.chmod(path, 0o444)
+    os.chmod(directory, 0o555)
+
+    try:
+        with dc.Cache(directory, dbname='other.db') as cache:
+            assert cache.read_only
+            assert cache['key'] == 'value'
+            with pytest.raises(dc.ReadOnlyError):
+                cache['key'] = 'other'
+    finally:
+        os.chmod(directory, 0o755)
+        os.chmod(path, 0o644)
+
+    assert os.listdir(directory) == ['other.db']
+
+
+def test_read_only_argument_with_dbname(directory):
+    with pytest.raises(dc.ReadOnlyError):
+        dc.Cache(directory, read_only=True, dbname='other.db')
+
+    with dc.Cache(directory, dbname='other.db') as cache:
+        cache['key'] = 'value'
+
+    with dc.Cache(directory, read_only=True, dbname='other.db') as cache:
+        assert cache['key'] == 'value'

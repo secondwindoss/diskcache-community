@@ -228,6 +228,7 @@ class Cache(BaseCache):
         disk: type[Disk] | None = ...,
         *,
         read_only: bool = ...,
+        dbname: str | None = ...,
         **settings: Unpack[InitSettings],
     ) -> None: ...
     @overload
@@ -238,6 +239,7 @@ class Cache(BaseCache):
         disk: type[Disk] | None = ...,
         *,
         read_only: bool = ...,
+        dbname: str | None = ...,
         # FIXME
         # https://peps.python.org/pep-0728/
         # diskcache allow "disk_*" args
@@ -332,5 +334,10 @@ class Cache(BaseCache):
     def iterkeys(
         self, reverse: bool = ..., tag: Tag | Constant[EnovalType] = ...
     ) -> Generator[Any, None, None]: ...
-    def __getstate__(self) -> tuple[str, int, type[Disk]]: ...
-    def __setstate__(self, state: tuple[str, int, type[Disk]]) -> None: ...
+    def __getstate__(
+        self,
+    ) -> (
+        tuple[str, int, type[Disk]]
+        | tuple[str, int, type[Disk], dict[str, str]]
+    ): ...
+    def __setstate__(self, state: tuple[Any, ...]) -> None: ...

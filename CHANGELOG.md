@@ -2,6 +2,12 @@
 
 diskcache-community forked from DiskCache at upstream commit ebfa37c (3 March 2024), two commits after the 5.6.3 release. Each entry names the pull request in this repository. Imported upstream pull requests are referenced by number, and their commits keep their original authors in the git history.
 
+## Unreleased
+
+### Changes
+
+- `Cache` takes a keyword-only `dbname` argument, the file name of the SQLite database in the cache directory (default `None`, meaning `cache.db`) (PR #53).
+
 ## 5.8.4 (2026-11-05)
 
 Extends `SafeDisk.with_numpy()` to numpy data in keys and to more numpy types in values, and fixes the data stored for short-lived array views. The `cache.db` schema and the file layout are unchanged, and entries 5.8.3 could store are written byte for byte as before.

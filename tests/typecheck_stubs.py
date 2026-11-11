@@ -28,3 +28,7 @@ def with_types_one_module() -> type[dc.SafeDisk]:
 
 def with_types_module_list() -> type[dc.SafeDisk]:
     return dc.SafeDisk.with_types(int, modules=['myapp.models', 'myapp.api'])
+
+
+def cache_with_dbname(directory: str) -> dc.Cache:
+    return dc.Cache(directory, dbname='credentials.db')
